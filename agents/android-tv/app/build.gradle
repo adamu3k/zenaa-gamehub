@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.zenaa.tv'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.zenaa.tv'
+        minSdk 24
+        targetSdk 34
+        versionCode 4
+        versionName '1.3.0'
+    }
+
+    signingConfigs {
+        release {
+            // Created on the first build by build-apk.sh (keep it: updates must be signed with the same key).
+            storeFile file('../zenaa-tv.keystore')
+            storePassword System.getenv('ZENAA_KEYSTORE_PASSWORD') ?: 'zenaa-tv-local'
+            keyAlias 'zenaa'
+            keyPassword System.getenv('ZENAA_KEYSTORE_PASSWORD') ?: 'zenaa-tv-local'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

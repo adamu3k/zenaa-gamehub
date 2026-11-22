@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.zenaa.momo'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.zenaa.momo'
+        minSdk 24
+        targetSdk 34
+        versionCode 3
+        versionName '1.2.0'
+    }
+
+    signingConfigs {
+        release {
+            // Created on the first build by build-apk.sh (keep it: updates must be signed with the same key).
+            storeFile file('../zenaa-momo.keystore')
+            storePassword System.getenv('ZENAA_KEYSTORE_PASSWORD') ?: 'zenaa-momo-local'
+            keyAlias 'zenaa'
+            keyPassword System.getenv('ZENAA_KEYSTORE_PASSWORD') ?: 'zenaa-momo-local'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

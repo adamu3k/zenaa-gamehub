@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+backups/
+server/data/
+*.log
+.DS_Store
+# Android TV signing key: keep a private backup, never publish it
+agents/android-tv/zenaa-tv.keystore
+agents/android-tv/.gradle
+agents/android-tv/app/build
+# Signing key and build output
+agents/android-momo/zenaa-momo.keystore
+agents/android-momo/.gradle
+agents/android-momo/app/build
+updates/
+
+# Database dumps anywhere, local tool settings
+*.dump
+.claude/

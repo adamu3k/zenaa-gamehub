@@ -1,0 +1,11 @@
+# Builds the ZENAA console payloads for jailbroken PS4 and PS5 (ELF, loaded on port 9021).
+# Used by build.ps1; output: /out/zenaa-ps4.elf and /out/zenaa-ps5.elf
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends bash clang-18 lld-18 llvm-18 wget unzip make ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN wget -q https://github.com/ps5-payload-dev/sdk/releases/download/v0.45/ps5-payload-sdk.zip -O /tmp/ps5.zip && unzip -q /tmp/ps5.zip -d /opt \
+ && wget -q https://github.com/ps4-payload-dev/sdk/releases/download/v0.9/ps4-payload-sdk.zip -O /tmp/ps4.zip && unzip -q /tmp/ps4.zip -d /opt && rm /tmp/*.zip
+ENV LLVM_CONFIG=/usr/bin/llvm-config-18
+WORKDIR /src
+COPY zenaa.c Makefile Makefile.ps4 Makefile.ps5 ./
+RUN mkdir -p /out && make PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk PS4_PAYLOAD_SDK=/opt/ps4-payload-sdk all && cp zenaa-ps4.elf zenaa-ps5.elf /out/
+

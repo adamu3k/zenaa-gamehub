@@ -1,0 +1,20 @@
+# Builds ZenaaTV.apk without installing Android Studio: everything happens inside this container.
+# Use build-apk.ps1 (Windows) or build-apk.sh (Linux/macOS).
+FROM gradle:8.7-jdk17
+ENV ANDROID_HOME=/opt/android-sdk
+RUN apt-get update && apt-get install -y --no-install-recommends unzip wget && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p $ANDROID_HOME/cmdline-tools && cd /tmp \
+ && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+ && unzip -q commandlinetools-linux-11076708_latest.zip && mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest && rm commandlinetools-linux-11076708_latest.zip \
+ && yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null \
+ && $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+WORKDIR /src
+COPY . .
+# The signing key is created on the first build and must be kept (agents/android-tv/zenaa-tv.keystore):
+# Android only installs an update over an existing app when both are signed with the same key.
+RUN if [ ! -f zenaa-tv.keystore ]; then \
+      keytool -genkeypair -keystore zenaa-tv.keystore -alias zenaa -keyalg RSA -keysize 2048 -validity 10000 \
+        -storepass zenaa-tv-local -keypass zenaa-tv-local -dname "CN=ZENAA TV, O=ZENAA GAMEHUB, C=GH"; \
+    fi \
+ && gradle --no-daemon -q assembleRelease \
+ && mkdir -p /out && cp app/build/outputs/apk/release/app-release.apk /out/ZenaaTV.apk && cp zenaa-tv.keystore /out/

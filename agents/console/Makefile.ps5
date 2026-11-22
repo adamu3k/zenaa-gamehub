@@ -1,0 +1,3 @@
+include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
+$(OUT): zenaa.c
+	$(CC) $(CFLAGS) -DZENAA_PLATFORM='"ps5"' -o $@ $^

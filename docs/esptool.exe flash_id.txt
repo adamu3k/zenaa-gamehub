@@ -1,0 +1,21 @@
+esptool.exe flash_id
+esptool.exe erase_flash
+
+esptool.exe read_flash 0x0 0x400000 BASICR4_4M.bin
+esptool.exe write_flash 0x0 BASICR4_4M.bin
+
+ESPHome-Flasher
+🔗 https://github.com/esphome/esphome-fl...
+
+Tasmota Installer
+🔗 https://tasmota.github.io/install/
+
+SONOFF BASICR4 Template
+🔗 https://templates.blakadder.com/sonof...   
+@DANzenaa2007
+
+https://youtu.be/co2gu3ysQxQ
+
+https://youtu.be/_-70ptIeZZ8
+
+https://templates.blakadder.com/sonoff_BASICR4.html

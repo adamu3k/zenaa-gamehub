@@ -1,0 +1,20 @@
+# Builds ZenaaMoMo.apk without installing Android Studio: everything happens inside this container.
+# Use build-apk.ps1 (Windows) or build-apk.sh (Linux/macOS).
+FROM gradle:8.7-jdk17
+ENV ANDROID_HOME=/opt/android-sdk
+RUN apt-get update && apt-get install -y --no-install-recommends unzip wget && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p $ANDROID_HOME/cmdline-tools && cd /tmp \
+ && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+ && unzip -q commandlinetools-linux-11076708_latest.zip && mv cmdline-tools $ANDROID_HOME/cmdline-tools/latest && rm commandlinetools-linux-11076708_latest.zip \
+ && yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null \
+ && $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+WORKDIR /src
+COPY . .
+# The signing key is created on the first build and must be kept (agents/android-momo/zenaa-momo.keystore):
+# Android only installs an update over an existing app when both are signed with the same key.
+RUN if [ ! -f zenaa-momo.keystore ]; then \
+      keytool -genkeypair -keystore zenaa-momo.keystore -alias zenaa -keyalg RSA -keysize 2048 -validity 10000 \
+        -storepass zenaa-momo-local -keypass zenaa-momo-local -dname "CN=ZENAA MoMo, O=ZENAA GAMEHUB, C=GH"; \
+    fi \
+ && gradle --no-daemon -q assembleRelease \
+ && mkdir -p /out && cp app/build/outputs/apk/release/app-release.apk /out/ZenaaMoMo.apk && cp zenaa-momo.keystore /out/

@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+server/data
+backups
+.env
+.git
+docs/*.exe
+docs/*.txt
+agents
