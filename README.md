@@ -147,3 +147,8 @@ Schema change workflow: edit `server/src/db/schema.ts`, run `npm run db:generate
 - [19 Staff PINs, user types, admin unlock, finance, shifts, news](docs/19-staff-pins-roles-finance.md)
 
 All guides are also inside the app: **Help & guides** (searchable).
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). The ZMG / ZENAA MEGA GAMES name, logos and brand pictures in `web/public/brand/` are trademarks of ZENAA MEGA GAMES and are not covered by the MIT licence.
+
