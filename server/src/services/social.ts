@@ -18,7 +18,8 @@ import { type FeedItem, outsideNews } from './newsfeed.js';
 import { cleanPhone } from './sms.js';
 import { type AppSettings, getKv, getSettings, setKv } from './settings.js';
 
-export const TEMPLATES = ['news', 'breaking', 'quote', 'versus', 'leaderboard', 'promo', 'winner'] as const;
+/** Look names: the originals plus layout-colourway pairs such as split-navy (drawn in the browser). */
+export const TemplateName = z.string().regex(/^[a-z]+(-[a-z]+)?$/, 'Unknown look').max(40);
 export const DIRECT_PLATFORMS = ['facebook', 'instagram', 'telegram', 'portal'] as const;
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const GRAPH_VIDEO = 'https://graph-video.facebook.com/v21.0';
@@ -66,7 +67,8 @@ export function captionFor(s: AppSettings, v: { title: string; summary?: string;
 
 // ───────── Ideas from news ─────────
 
-const IDEA_TEMPLATES = ['news', 'breaking', 'quote'] as const;
+/** Looks used for news ideas with a picture, in rotation. */
+const IDEA_TEMPLATES = ['news', 'breaking', 'split-navy', 'card-navy', 'slash-lime', 'broadcast-navy', 'cover-navy', 'card-blue'] as const;
 
 /** Turns news stories into post ideas (one per story, never twice). Returns the new ideas. */
 export async function ideasFromItems(ctx: Ctx, items: FeedItem[], limit: number) {
@@ -84,7 +86,7 @@ export async function ideasFromItems(ctx: Ctx, items: FeedItem[], limit: number)
   const out = [];
   for (const [k, i] of fresh.entries()) {
     // Rotate looks so the feed doesn't repeat itself; stories without a picture become quote cards.
-    const template = i.imageUrl ? IDEA_TEMPLATES[(Number(n) + k) % 2] : 'quote';
+    const template = i.imageUrl ? IDEA_TEMPLATES[(Number(n) + k) % IDEA_TEMPLATES.length] : 'quote';
     const [row] = await ctx.db
       .insert(socialPosts)
       .values({
@@ -95,7 +97,7 @@ export async function ideasFromItems(ctx: Ctx, items: FeedItem[], limit: number)
         fields: {
           headline: shorten(i.title, 110),
           sub: shorten(i.summary ?? '', 160),
-          tag: template === 'breaking' ? 'BREAKING' : 'GAMING NEWS',
+          tag: template === 'breaking' ? 'BREAKING' : template === 'broadcast-navy' ? 'LIVE' : template === 'cover-navy' ? 'ZMG' : 'GAMING NEWS',
           imageUrl: i.imageUrl,
           source: i.source,
         },
@@ -157,7 +159,7 @@ export async function dailyIdeasTick(ctx: Ctx, items?: FeedItem[]) {
 
 export const FieldsSchema = z.record(z.string().max(40), z.union([z.string().max(700_000), z.number(), z.boolean(), z.null(), z.array(z.any()).max(20)]));
 export const PostBody = z.object({
-  template: z.enum(TEMPLATES),
+  template: TemplateName,
   fields: FieldsSchema.default({}),
   caption: z.string().max(2200).default(''),
   status: z.enum(['idea', 'draft', 'dismissed', 'posted']).optional(),

@@ -68,6 +68,41 @@ Graphics use your ZMG brand: the controller logo, the blue ZENAA texture from yo
 | **Promo / event** | Happy hour, tournaments, merch, opening hours, with price badge and WhatsApp line |
 | **Winner** | Champion photo, WINNER and confetti |
 
+**40 more looks (v0.9.2):** 10 new layouts, each in 4 colourways (navy, blue, lime, light, black or white). In the editor, the **Look** box shows a small live preview of every look with your own text, and buttons to filter them: **News**, **Events**, **Matches & players**, **Moments**, **Community**.
+
+**Looks from the reference pack (v0.9.3):** 28 more layouts, each in 4 colourways (112 looks):
+- **Memes & comics:** Comic panel (caption boxes, speech bubble, shout word) · Meme + quote (set-up, quote, score chip).
+- **Players:** Game character (loading-screen style name) · Players pill.
+- **Matches & players:** Word behind player · Winner announcement · Good luck squad · Representing (two players, travel arrow) · Streak & next match.
+- **Events:** Game reveal (knitted background) · It's today · Season tease · Rules board · Tournament flyer · New chapter · Arcade reveal · Event photo (date · venue · time bar) · Prize pool · Festival poster.
+- **Results & tables:** League table (green/red rows for promotion and relegation) · Results (Kofi 5-3 Ama).
+- **Celebrations:** New month · Happy birthday · Milestone (number counts up).
+- **Moments / Community:** Cinematic title · Predictions · Vote / poll · Players reveal.
+
+Tip: player pictures look best as a **cut-out PNG with no background** (remove.bg makes one free).
+
+**3D character prompt (3D & AI looks):** pick **3D · 3D cartoon**, **Game cover**, **2D cartoon** or **Collectible figure**.
+1. Add the player's photo and fill in the name, outfit, scene, pose and expression (plus the speech bubble or caption box if you want them).
+2. The **3D prompt** card writes the prompt for you. Press **Copy prompt** (and **Copy photo**).
+3. Open ChatGPT or Gemini, attach the photo, paste the prompt and send.
+4. Save the picture it makes and put it back in **Player photo**. The poster then uses the 3D picture. You can also use it in Comic panel, Meme + quote or Players reveal.
+
+
+| Layout | Good for |
+|---|---|
+| **Split** | Picture on one half, story on the other |
+| **Magazine cover** | Full photo, big masthead (e.g. ZMG), up to 3 cover lines |
+| **News card** | Floating card with picture and story |
+| **Slash** | Photo on top, colour block below a slanted edge |
+| **TV live** | LIVE pill, TV-style headline bar and a scrolling ticker |
+| **Big word** | One giant word or number: GG, NEW, OPEN, 50% |
+| **Countdown** | "3 DAYS TO GO" inside an animated ring |
+| **Fixtures** | Match schedule. One per line: `7:00 PM, Kofi vs Ama` |
+| **Player stats** | Player photo and up to 4 stats that count up. One per line: `Wins, 24` |
+| **Photo dump** | Three polaroid photos dropping in, with a caption |
+
+Daily news ideas now rotate through several news looks, so the feed doesn't repeat itself.
+
 **Sizes:**
 - **Post 4:5:** Instagram and Facebook feeds.
 - **Square:** any feed or WhatsApp.
@@ -132,3 +167,16 @@ Tokens stay on the ZENAA server. They are never shown again or written to the au
 - **Your social pages:** the links shown in the customer app and on QR posters.
 
 Ideas come from the websites listed under **News & posters → Outside news**. Each story is used once. Press **×** on an idea you don't want, or **Get ideas now** to check the news straight away.
+
+
+### New in v0.9.4
+
+**Blank canvas** (Social → Blank canvas, or the button next to Look in the post editor) lets you design from scratch:
+- Add **Heading**, **Text**, **Box**, **Circle**, **Picture** (or drag/paste a picture in) and the **ZMG logo**.
+- Click anything to select it. Drag to move, pull the corners to resize (Shift keeps the shape), pull the top dot to turn it. Arrow keys nudge, Ctrl+D copies, Delete removes, Ctrl+Z / Ctrl+Y undo and redo.
+- The panel on the right changes the colour, font, outline, shadow/glow and more. **Layers** changes what sits on top, hides or locks things.
+- **Use in a post** sends the finished picture to the post editor, where you add the caption and post. **PNG / JPG** downloads it. **Save** makes a file you can **Open** later to keep editing. Your last design is also kept in the browser.
+
+**Remove background**: under every picture there is a **Remove background** button (and one in Blank canvas). It works best when the background is plain, such as a wall, the sky or white. Use **Gentler** or **Stronger** if it takes too little or too much, and **Original** to go back. For busy backgrounds use the **AI · Remove background** look, which writes a prompt for ChatGPT / Gemini.
+
+**3D prompts**: the prompts now keep the face and the eyes exactly the same. **AI · Make my design 3D** is for a finished design: attach it in ChatGPT / Gemini with the prompt, and only the people turn 3D while the text, logos, colours and layout stay the same. Tick **No background** to get a cut-out back.

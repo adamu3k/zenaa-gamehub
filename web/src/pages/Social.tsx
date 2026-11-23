@@ -4,6 +4,9 @@ import {
   Check,
   Copy,
   Download,
+  Eraser,
+  Palette,
+  Undo2,
   ExternalLink,
   Film,
   ImagePlus,
@@ -25,6 +28,7 @@ import { ErrorBox, Field, PageHeader, Segmented } from '../components/ui';
 import { del, get, patch, post, put } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import {
+  AI3D_STYLES,
   blobToDataUrl,
   type Brand,
   canvasBlob,
@@ -33,13 +37,16 @@ import {
   type FormatKey,
   FORMATS,
   loadAssets,
+  removeBackground,
   recordVideo,
   shrinkPhoto,
   type Spec,
   type TemplateKey,
+  TEMPLATE_GROUPS,
   TEMPLATES,
   videoType,
 } from '../social/graphics';
+import { Studio } from '../social/Studio';
 
 type Tab = 'ideas' | 'posted' | 'updates' | 'accounts';
 interface SocialPost {
@@ -67,6 +74,14 @@ const PLATFORM_NAMES: Record<string, string> = {
   snapchat: 'Snapchat',
 };
 
+/** A new graphic that starts with a look already chosen (e.g. a design from Blank canvas). */
+interface Preset {
+  preset: true;
+  template: TemplateKey;
+  format: FormatKey;
+  fields: Record<string, any>;
+}
+
 function useBrand(): Brand {
   const { settings } = useApp();
   const s = settings.social;
@@ -76,7 +91,9 @@ function useBrand(): Brand {
 /** Social: post ideas from game news, branded graphics and videos, posting, page numbers. */
 export function SocialPage() {
   const [tab, setTab] = useState<Tab>('ideas');
-  const [editing, setEditing] = useState<SocialPost | 'new' | null>(null);
+  const [editing, setEditing] = useState<SocialPost | 'new' | Preset | null>(null);
+  const [studio, setStudio] = useState(false);
+  const brand = useBrand();
   const qc = useQueryClient();
   const { toast } = useApp();
   const ideas = useQuery({ queryKey: ['social', 'posts', 'ideas'], queryFn: () => get<SocialPost[]>('/api/social/posts?status=ideas') });
@@ -90,7 +107,29 @@ export function SocialPage() {
     },
   });
 
-  if (editing) return <Editor initial={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />;
+  if (studio)
+    return (
+      <Studio
+        brand={brand}
+        onClose={() => setStudio(false)}
+        onUse={(imageUrl, format) => {
+          setStudio(false);
+          setEditing({ preset: true, template: 'custom', format, fields: { imageUrl } });
+        }}
+      />
+    );
+  if (editing)
+    return (
+      <Editor
+        initial={editing === 'new' || 'preset' in editing ? null : editing}
+        preset={editing !== 'new' && 'preset' in editing ? editing : undefined}
+        onClose={() => setEditing(null)}
+        onStudio={() => {
+          setEditing(null);
+          setStudio(true);
+        }}
+      />
+    );
   const ideaCount = ideas.data?.length ?? 0;
   return (
     <>
@@ -101,6 +140,9 @@ export function SocialPage() {
           <>
             <button className="btn" disabled={getIdeas.isPending} onClick={() => getIdeas.mutate()}>
               <Lightbulb size={16} /> {getIdeas.isPending ? 'Reading the news…' : 'Get ideas now'}
+            </button>
+            <button className="btn" onClick={() => setStudio(true)} title="Design from scratch: text, shapes, pictures">
+              <Palette size={16} /> Blank canvas
             </button>
             <button className="btn btn-primary" onClick={() => setEditing('new')}>
               <Plus size={16} /> New graphic
@@ -219,17 +261,78 @@ function Thumb({ post: p }: { post: SocialPost }) {
   return <canvas ref={ref} className="social-thumb" />;
 }
 
+// ───────── Look picker (small live previews) ─────────
+
+const thumbCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+
+function LookThumb({ k, format, fields, brand }: { k: TemplateKey; format: FormatKey; fields: Record<string, any>; brand: Brand }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setSeen(true), { rootMargin: '120px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  const key = JSON.stringify([k, format, fields, brand]);
+  useEffect(() => {
+    if (!seen) return;
+    let off = false;
+    const timer = setTimeout(async () => {
+      const spec: Spec = { template: k, format, fields };
+      const a = await loadAssets(spec);
+      const el = ref.current;
+      if (off || !el || !thumbCanvas) return;
+      drawFrame(thumbCanvas, spec, a, brand, Infinity);
+      el.width = 160;
+      el.height = Math.round((160 * thumbCanvas.height) / thumbCanvas.width);
+      el.getContext('2d')!.drawImage(thumbCanvas, 0, 0, el.width, el.height);
+    }, 400);
+    return () => {
+      off = true;
+      clearTimeout(timer);
+    };
+  }, [key, seen]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <canvas ref={ref} />;
+}
+
+function LookPicker({ template, onPick, format, fields, brand }: { template: TemplateKey; onPick(k: TemplateKey): void; format: FormatKey; fields: Record<string, any>; brand: Brand }) {
+  const [group, setGroup] = useState('All');
+  const keys = Object.keys(TEMPLATES).filter((k) => group === 'All' || TEMPLATES[k].group === group);
+  return (
+    <>
+      <div className="toolbar" style={{ gap: 6 }}>
+        {['All', ...TEMPLATE_GROUPS].map((g) => (
+          <button key={g} type="button" className={`btn btn-sm ${group === g ? 'btn-primary' : ''}`} onClick={() => setGroup(g)}>
+            {g}
+            {g === 'All' ? ` (${Object.keys(TEMPLATES).length})` : ''}
+          </button>
+        ))}
+      </div>
+      <div className="tpl-pick">
+        {keys.map((k) => (
+          <button key={k} type="button" className={template === k ? 'on' : ''} onClick={() => onPick(k)} title={TEMPLATES[k].about}>
+            <LookThumb k={k} format={format} fields={fields} brand={brand} />
+            {TEMPLATES[k].label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ───────── Editor ─────────
 
-function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): void }) {
+function Editor({ initial, preset, onClose, onStudio }: { initial: SocialPost | null; preset?: Preset; onClose(): void; onStudio(): void }) {
   const { settings, toast } = useApp();
   const qc = useQueryClient();
   const brand = useBrand();
   const full = useQuery({ queryKey: ['social', 'post', initial?.id], queryFn: () => get<SocialPost>(`/api/social/posts/${initial!.id}`), enabled: !!initial });
   const [postId, setPostId] = useState<string | null>(initial?.id ?? null);
-  const [template, setTemplate] = useState<TemplateKey>(initial?.template ?? 'news');
-  const [format, setFormat] = useState<FormatKey>((initial?.fields.format as FormatKey) ?? 'post');
-  const [fields, setFields] = useState<Record<string, any>>(initial?.fields ?? { tag: 'GAMING NEWS' });
+  const [template, setTemplate] = useState<TemplateKey>(initial?.template ?? preset?.template ?? 'news');
+  const [format, setFormat] = useState<FormatKey>((initial?.fields.format as FormatKey) ?? preset?.format ?? 'post');
+  const [fields, setFields] = useState<Record<string, any>>(initial?.fields ?? preset?.fields ?? { tag: 'GAMING NEWS' });
   const [caption, setCaption] = useState(initial?.caption ?? '');
   const [loaded, setLoaded] = useState(!initial);
   useEffect(() => {
@@ -243,7 +346,7 @@ function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): v
   const spec: Spec = useMemo(() => ({ template, format, fields }), [template, format, fields]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [assets, setAssets] = useState<Awaited<ReturnType<typeof loadAssets>> | null>(null);
-  const imageKeys = TEMPLATES[template].fields.filter((f) => f.kind === 'image').map((f) => String(fields[f.key] ?? ''));
+  const imageKeys = (TEMPLATES[template] ?? TEMPLATES.news).fields.filter((f) => f.kind === 'image').map((f) => String(fields[f.key] ?? ''));
   useEffect(() => {
     let off = false;
     loadAssets(spec).then((a) => !off && setAssets(a));
@@ -353,16 +456,15 @@ function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): v
       <div className="social-editor">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <h3>Look</h3>
-            <div className="tpl-pick">
-              {(Object.keys(TEMPLATES) as TemplateKey[]).map((k) => (
-                <button key={k} type="button" className={template === k ? 'on' : ''} onClick={() => setTemplate(k)} title={TEMPLATES[k].about}>
-                  {TEMPLATES[k].label}
-                </button>
-              ))}
+            <div className="toolbar">
+              <h3 style={{ flex: 1 }}>Look</h3>
+              <button className="btn btn-sm" onClick={onStudio} title="Design from scratch instead of using a look">
+                <Palette size={14} /> Blank canvas
+              </button>
             </div>
+            <LookPicker template={template} onPick={setTemplate} format={format} fields={fields} brand={brand} />
             <span className="dim" style={{ fontSize: 12 }}>
-              {TEMPLATES[template].about}
+              <b>{TEMPLATES[template]?.label}</b> — {TEMPLATES[template]?.about}
             </span>
             <Field label="Size">
               <Segmented value={format} onChange={setFormat} options={(Object.keys(FORMATS) as FormatKey[]).map((k) => ({ value: k, label: FORMATS[k].label }))} />
@@ -374,15 +476,15 @@ function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): v
 
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <h3>Text & pictures</h3>
-            {TEMPLATES[template].fields.map((f) =>
+            {(TEMPLATES[template] ?? TEMPLATES.news).fields.map((f) =>
               f.kind === 'image' ? (
                 <ImageField key={f.key} label={f.label} value={fields[f.key]} onChange={(v) => setField(f.key, v)} />
-              ) : f.kind === 'rows' ? (
+              ) : f.kind === 'rows' && template === 'leaderboard' ? (
                 <RowsField key={f.key} value={fields[f.key]} onChange={(v) => setField(f.key, v)} onSub={(s) => setField('sub', s)} />
               ) : (
                 <Field key={f.key} label={f.label} hint={f.hint}>
-                  {f.kind === 'textarea' ? (
-                    <textarea className="input" rows={f.key === 'headline' ? 3 : 2} placeholder={f.placeholder} value={fields[f.key] ?? ''} onChange={(e) => setField(f.key, e.target.value)} />
+                  {f.kind !== 'text' ? (
+                    <textarea className={`input${f.kind === 'rows' ? ' mono' : ''}`} rows={f.kind === 'rows' ? 6 : f.key === 'headline' ? 3 : 2} placeholder={f.placeholder} value={fields[f.key] ?? ''} onChange={(e) => setField(f.key, e.target.value)} />
                   ) : (
                     <input className="input" placeholder={f.placeholder} value={fields[f.key] ?? ''} onChange={(e) => setField(f.key, e.target.value)} />
                   )}
@@ -390,6 +492,8 @@ function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): v
               ),
             )}
           </div>
+
+          {template.startsWith('ai-') && <PromptMaker style={template.slice(3)} fields={fields} format={format} />}
 
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div className="toolbar">
@@ -442,9 +546,117 @@ function Editor({ initial, onClose }: { initial: SocialPost | null; onClose(): v
   );
 }
 
+function PromptMaker({ style, fields, format }: { style: string; fields: Record<string, any>; format: FormatKey }) {
+  const { toast } = useApp();
+  const st = AI3D_STYLES.find((s) => s.key === style) ?? AI3D_STYLES[0];
+  const [cutout, setCutout] = useState(false);
+  const isCut = st.key === 'cutout';
+  const isDesign = st.key === 'design';
+  const text = st.prompt(fields, format, { cutout: cutout || isCut });
+  const photo = typeof fields.imageUrl === 'string' && fields.imageUrl.startsWith('data:') ? fields.imageUrl : '';
+  const copyPhoto = async () => {
+    try {
+      const blob = await (await fetch(photo)).blob();
+      const png = blob.type === 'image/png' ? blob : await new Promise<Blob>((res, rej) => {
+        const im = new Image();
+        im.onload = () => {
+          const cv = document.createElement('canvas');
+          cv.width = im.width;
+          cv.height = im.height;
+          cv.getContext('2d')!.drawImage(im, 0, 0);
+          cv.toBlob((b) => (b ? res(b) : rej(new Error('Could not copy'))), 'image/png');
+        };
+        im.onerror = () => rej(new Error('Could not read the photo'));
+        im.src = photo;
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      toast('success', 'Photo copied — paste it into the chat');
+    } catch (e: any) {
+      toast('error', `${e.message ?? e}. Save the photo and attach it instead.`);
+    }
+  };
+  return (
+    <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="toolbar">
+        <h3 style={{ flex: 1 }}>{isCut ? '✂️ Background prompt' : '🧊 3D prompt'} · {st.label}</h3>
+        <button className="btn btn-sm btn-primary" onClick={() => navigator.clipboard?.writeText(text).then(() => toast('success', 'Prompt copied'))}>
+          <Copy size={14} /> Copy prompt
+        </button>
+      </div>
+      <ol className="dim" style={{ fontSize: 13, margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <li>
+          {isDesign
+            ? 'Upload your finished design above (the one with the players in it). Only the people are turned 3D; the text, logos, colours, layout and the eyes stay the same.'
+            : isCut
+              ? 'Upload the player photo above. Try the free “Remove background” button under it first; use this prompt when the background is busy.'
+              : "Add the player's photo above and fill in the details. The prompt keeps the face and eyes the same and updates as you type."}
+        </li>
+        <li>
+          Open{' '}
+          <a href="https://chatgpt.com/" target="_blank" rel="noreferrer">
+            ChatGPT <ExternalLink size={11} />
+          </a>{' '}
+          or{' '}
+          <a href="https://gemini.google.com/" target="_blank" rel="noreferrer">
+            Gemini <ExternalLink size={11} />
+          </a>
+          , attach the same {isDesign ? 'design' : 'photo'} and paste the prompt.
+        </li>
+        <li>
+          Save the picture it makes, then upload it above{isDesign ? '. It is ready to post as it is.' : '. The poster on the right uses it.'}
+          {!isDesign && ' If it comes back on a white background, press “Remove background”.'}
+        </li>
+      </ol>
+      {!isCut && st.key !== 'figure' && (
+        <label className="toolbar" style={{ gap: 8, cursor: 'pointer', fontSize: 13 }}>
+          <input type="checkbox" checked={cutout} onChange={(e) => setCutout(e.target.checked)} />
+          <span>
+            <b>No background</b>: ask for a cut-out (transparent PNG) so it drops straight into any look
+          </span>
+        </label>
+      )}
+      <textarea className="input mono" rows={10} readOnly value={text} onFocus={(e) => e.currentTarget.select()} />
+      <div className="toolbar" style={{ gap: 6 }}>
+        <span className="dim" style={{ fontSize: 12, flex: 1 }}>
+          Other styles:{' '}
+          {AI3D_STYLES.filter((s) => s.key !== st.key).map((s, i) => (
+            <span key={s.key}>
+              {i ? ' · ' : ''}
+              {s.label}
+            </span>
+          ))}{' '}
+          — pick them under Look → 3D & AI.
+        </span>
+        {photo && typeof ClipboardItem !== 'undefined' && (
+          <button className="btn btn-sm" onClick={copyPhoto}>
+            <Copy size={14} /> Copy photo
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImageField({ label, value, onChange }: { label: string; value: unknown; onChange(v: string | null): void }) {
   const file = useRef<HTMLInputElement>(null);
   const { toast } = useApp();
+  const [before, setBefore] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cut = async (tol: number) => {
+    const src = typeof value === 'string' ? value : '';
+    if (!src) return;
+    setBusy(true);
+    try {
+      const out = await removeBackground(before ?? src, tol);
+      if (!before) setBefore(src);
+      onChange(out);
+      toast('success', 'Background removed');
+    } catch (e: any) {
+      toast('error', e.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const v = typeof value === 'string' ? value : '';
   const isData = v.startsWith('data:') || v.startsWith('upload:');
   return (
@@ -468,6 +680,33 @@ function ImageField({ label, value, onChange }: { label: string; value: unknown;
           )}
         </div>
         {isData && <span className="dim" style={{ fontSize: 12 }}>Uploaded picture in use.</span>}
+        {v && !v.startsWith('/brand/') && (
+          <div className="toolbar" style={{ gap: 6 }}>
+            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => cut(45)} title="Best on a plain background (wall, sky, white)">
+              <Eraser size={14} /> {busy ? 'Removing…' : 'Remove background'}
+            </button>
+            {before && (
+              <>
+                <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => cut(25)}>
+                  Gentler
+                </button>
+                <button type="button" className="btn btn-sm btn-ghost" disabled={busy} onClick={() => cut(80)}>
+                  Stronger
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => {
+                    onChange(before);
+                    setBefore(null);
+                  }}
+                >
+                  <Undo2 size={14} /> Original
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="toolbar" style={{ gap: 6 }}>
           <span className="dim" style={{ fontSize: 12 }}>
             Brand pictures:
@@ -492,6 +731,7 @@ function ImageField({ label, value, onChange }: { label: string; value: unknown;
             e.target.value = '';
             if (!f) return;
             try {
+              setBefore(null);
               onChange(await shrinkPhoto(f));
             } catch (err: any) {
               toast('error', err.message);

@@ -1,5 +1,25 @@
 # Development Log
 
+## 2026-11-23 — v0.9.4 Blank canvas, background remover, stronger looks, better 3D prompts
+- New `web/src/social/Studio.tsx` (**Blank canvas**): a small design tool with no libraries. Headings, text, boxes, circles, pictures and the ZMG logo; move, resize, turn, layers (order, hide, lock), colours with fades, outline, shadow/glow, picture brightness/contrast/colour, undo/redo, keyboard shortcuts, drag-drop and paste. Autosaves in the browser; Save/Open an editable `.zmgdesign.json`; PNG/JPG download; **Use in a post** opens the post editor with the new `custom` look ("Your own design").
+- `removeBackground()` in graphics.ts: flood-fills plain backgrounds from the top/side edges, softens the edge and trims. Button under every picture field (with Gentler / Stronger / Original) and in the Studio.
+- Uploads with a see-through background now stay see-through (WebP/PNG instead of JPEG).
+- Looks: ordinary photos become a framed, tilted photo card instead of a blurry box; cut-outs get a coloured glow and rim light; every pack look gets a finishing pass (contrast/saturation, light sweep, vignette, grain).
+- 3D prompts keep the face and **eyes exactly the same** (no enlarged cartoon eyes). New **AI · Make my design 3D** (attach a finished design; only the people turn 3D, text/logos/layout stay) and **AI · Remove background** prompts; "No background" option on the other prompts.
+- Tests 130/130.
+
+## 2026-11-23 — v0.9.3 Reference-pack looks + 3D character prompts
+- `web/src/social/graphics.ts`: 28 new layouts modelled on the 50 reference posts (`asset 1` folder; style inspiration only, no logos or artwork copied) × 4 colourways = 112 looks, plus 4 "3D & AI" looks. New colourways: magenta, purple, green, gold, warm yellow, sunset, orange, red, festival red, pink (`pal3`, knit / grain / dots patterns). New helpers: `figure` (cut-out with soft edges), `bubble`, `capBox`, `shout`, `metalName`, `brushes`, `confetti`, `countUp`.
+- `AI3D_STYLES` builds a ChatGPT / Gemini prompt (3D cartoon, game cover, 2D cartoon, collectible figure) from the photo + name, outfit, scene, pose, expression, bubble and caption. The editor shows a **3D prompt** card with Copy prompt / Copy photo for `ai-*` looks.
+- Look picker: previews draw only once on screen (IntersectionObserver); new groups 3D & AI, Players, Results & tables, Memes & comics, Celebrations. 163 looks in total.
+- All new looks rendered in Post, Square and Story with headless Chrome and checked; tests 130/130.
+
+## 2026-11-23 — v0.9.2 40 more Social looks
+- `web/src/social/graphics.ts`: 10 new layouts (split, magazine cover, news card, slash, TV live, big word, countdown, fixtures, player stats, photo dump) × 4 brand colourways, built from `FAMILIES`. Keys are `layout-colour` (e.g. `split-navy`). `TemplateKey` is now a string; each template has a `group`.
+- Editor: the look picker shows live mini previews with group filters. Rows fields outside Leaderboard are a plain textarea.
+- Server: `template` is checked against a pattern instead of a fixed list. News ideas rotate through 8 looks.
+- All 40 looks were rendered in Post, Square and Story with headless Chrome and checked.
+
 ## 2026-11-21 — v0.9.1 Saved time on customer accounts
 - `customers.saved_seconds`, `sessions.from_saved_seconds` / `saved_seconds`, and a new `customer_time_log` table (migration 0010_saved_time).
 - `services/time-bank.ts`: `postTime` (never below zero; logs it) and `addCustomerTime` (buy = package/minutes with payment and member discount; adjust = signed minutes with a reason). Permission `customers.time` (admin and manager by default).
