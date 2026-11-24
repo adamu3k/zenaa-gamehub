@@ -1,7 +1,7 @@
 /* ZENAA GAMEHUB service worker: makes the portal and staff app installable and opens instantly.
  * Hashed build files (/assets/…) are cached; pages fall back to the cached app shell when offline.
  * API calls are never cached — balances and timers are always live. */
-const CACHE = 'zenaa-v4';
+const CACHE = 'zenaa-v5';
 const SHELL = ['/', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -48,4 +48,40 @@ self.addEventListener('fetch', (e) => {
         .catch(() => caches.match('/').then((r) => r || new Response('Offline — check the Wi-Fi and try again.', { status: 503 }))),
     );
   }
+});
+
+/* Phone notifications (Web Push): chats, match challenges, bookings, time nearly up. */
+self.addEventListener('push', (e) => {
+  let d = {};
+  try {
+    d = e.data ? e.data.json() : {};
+  } catch {
+    d = { title: 'ZENAA', body: e.data ? e.data.text() : '' };
+  }
+  e.waitUntil(
+    self.registration.showNotification(d.title || d.center || 'ZENAA', {
+      body: d.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: d.tag || undefined,
+      renotify: !!d.tag,
+      data: { url: d.url || '/portal' },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || '/portal', self.location.origin).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if (c.url.startsWith(self.location.origin + '/portal') && 'focus' in c) {
+          c.navigate(url).catch(() => undefined);
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
 });

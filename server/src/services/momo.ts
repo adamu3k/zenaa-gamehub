@@ -23,6 +23,7 @@ import { audit } from './audit.js';
 import { getKv, getSettings, setKv, type AppSettings } from './settings.js';
 import { moneyText, queueCustomerSms } from './sms.js';
 import { walletOperation } from './wallet.js';
+import { payOwedFromWallet } from './sessions.js';
 
 // ───────────── SMS parsing ─────────────
 
@@ -201,6 +202,7 @@ async function credit(ctx: Ctx, tx: DbOrTx, r: typeof momoRequests.$inferSelect,
     at: now,
   });
   await tx.update(momoRequests).set({ paymentId: w.paymentId }).where(eq(momoRequests.id, r.id));
+  await payOwedFromWallet(tx, r.customerId, actor, now);
   await queueCustomerSms(tx, r.customerId, 'momo', { amount: r.amount }, now);
   await audit(tx, actor, 'momo.confirmed', { type: 'momo_request', id: r.id }, { amount: r.amount, code: r.code, via, txnId: claimed.txnId });
   return claimed;

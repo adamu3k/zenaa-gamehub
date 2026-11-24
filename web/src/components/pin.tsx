@@ -2,7 +2,7 @@ import { Delete, KeyRound, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { post, setPinPrompt } from '../lib/api';
 import { useApp } from '../lib/app-context';
-import { ErrorBox, Field, Modal } from './ui';
+import { ErrorBox, Field, Modal, PasswordInput } from './ui';
 
 /** Big-button PIN pad. */
 export function PinPad({ value, onChange, onEnter }: { value: string; onChange(v: string): void; onEnter?(): void }) {
@@ -146,13 +146,13 @@ export function MyPinModal({ onClose }: { onClose(): void }) {
       </p>
       <div className="form-grid">
         <Field label="Your password" full>
-          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+          <PasswordInput className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
         </Field>
         <Field label="New PIN">
-          <input className="input mono" inputMode="numeric" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+          <PasswordInput className="input mono" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} />
         </Field>
         <Field label="Type it again">
-          <input className="input mono" inputMode="numeric" type="password" value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, '').slice(0, 8))} />
+          <PasswordInput className="input mono" inputMode="numeric" value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, '').slice(0, 8))} />
         </Field>
       </div>
       <ErrorBox error={error} />

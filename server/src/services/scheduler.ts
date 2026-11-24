@@ -4,6 +4,7 @@ import type { Ctx } from '../context.js';
 import { sessionEvents, sessions, stations } from '../db/schema.js';
 import { expireSession, recoverAfterOutage } from './sessions.js';
 import { getKv, getSettings, setKv } from './settings.js';
+import { notifyLater } from './push.js';
 
 const HEARTBEAT_KEY = 'system.heartbeat';
 const OUTAGE_THRESHOLD_MS = 120_000;
@@ -93,6 +94,7 @@ export class SessionScheduler {
               sound: 'warning',
               speak: `${st?.name ?? 'Station'}, ${w} minute${w === 1 ? '' : 's'} remaining`,
             });
+            if (w >= 5) notifyLater(this.ctx, s.customerId, { title: `⏳ ${w} minutes left`, body: `Your time on ${st?.name ?? 'your station'} ends soon. Add time at the counter or in the app.`, url: '/portal', tag: `session-${s.id}` });
             break;
           }
         }

@@ -3,6 +3,7 @@ import { Pencil, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MoneyInput } from '../components/money';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, Segmented } from '../components/ui';
 import { get, patch, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
@@ -100,6 +101,7 @@ function HappyHours() {
                   <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditing(h)} aria-label="Edit">
                     <Pencil size={14} />
                   </button>
+                  <DeleteButton icon url={`/api/happy-hours/${h.id}`} what={`happy hour "${h.name}"`} refresh={[['happy-hours'], ['happyHours']]} />
                 </td>
               </tr>
             ))}
@@ -260,6 +262,7 @@ function PromoCodes() {
                     <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditing(p)} aria-label="Edit">
                       <Pencil size={14} />
                     </button>
+                    <DeleteButton icon url={`/api/promo-codes/${p.id}`} what={`promo code ${p.code}`} refresh={[['promo-codes'], ['promoCodes']]} />
                   </td>
                 </tr>
               );

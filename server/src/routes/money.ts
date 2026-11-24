@@ -44,6 +44,17 @@ async function paymentRows(ctx: Ctx, where: ReturnType<typeof and>, limit = 500)
 export async function moneyRoutes(app: FastifyInstance, ctx: Ctx) {
   // ───── Shifts ─────
   app.get('/api/shifts/current', { preHandler: app.auth() }, async (req) => ({ shift: await currentShift(ctx.db, req.staff!.id) }));
+  /** What the last closed shift left in the drawer, to suggest the next opening float. */
+  app.get('/api/shifts/last-count', { preHandler: app.auth() }, async () => {
+    const [l] = await ctx.db
+      .select({ countedCash: shifts.countedCash, closedAt: shifts.closedAt, staffName: staff.fullName })
+      .from(shifts)
+      .leftJoin(staff, eq(staff.id, shifts.staffId))
+      .where(gt(shifts.closedAt, new Date(0)))
+      .orderBy(desc(shifts.closedAt))
+      .limit(1);
+    return { last: l ?? null };
+  });
   app.post('/api/shifts/open', { preHandler: app.auth() }, async (req) => openShift(ctx, actorOf(req), req.body));
   app.post<{ Params: { id: string } }>('/api/shifts/:id/close', { preHandler: app.auth() }, async (req) =>
     closeShift(ctx, await pinGate(ctx, req, 'shift_close', null), req.params.id, req.body),

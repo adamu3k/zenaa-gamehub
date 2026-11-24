@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { ErrorBox, Field, PageHeader } from '../components/ui';
+import { ErrorBox, Field, PageHeader, PasswordInput } from '../components/ui';
 import { del, get, post, put, setToken } from '../lib/api';
 import { useApp } from '../lib/app-context';
-import { formatMoney } from '../lib/format';
+import { formatMoney, parseMoney, toMajorString } from '../lib/format';
 import { AppearanceCard } from './SettingsAppearance';
 
 interface Country {
@@ -47,7 +47,13 @@ export function SettingsPage() {
   const countriesQ = useQuery({ queryKey: ['countries'], queryFn: () => get<Country[]>('/api/countries'), staleTime: Infinity });
   const currencies = useMemo(allCurrencies, []);
   const zones = useMemo(allTimeZones, []);
-  const init = () => ({ ...settings, warning: settings.warningMinutes.join(', '), newProvider: '', blocked: (settings.chatBlockedWords ?? []).join(', ') });
+  const init = () => ({
+    ...settings,
+    warning: settings.warningMinutes.join(', '),
+    newProvider: '',
+    blocked: (settings.chatBlockedWords ?? []).join(', '),
+    creditText: settings.defaultCreditLimit ? toMajorString(settings.defaultCreditLimit, settings.currencyMinorUnits) : '',
+  });
   const [f, setF] = useState(init);
   useEffect(() => setF(init()), [settings]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -90,6 +96,9 @@ export function SettingsPage() {
           .map((x) => Number(x.trim()))
           .filter((x) => Number.isInteger(x) && x > 0),
         requireOpenShift: f.requireOpenShift,
+        defaultCreditLimit: f.creditText.trim() ? (parseMoney(f.creditText, settings.currencyMinorUnits) ?? 0) : 0,
+        portalSelfStart: f.portalSelfStart !== false,
+        autoPayOwed: f.autoPayOwed !== false,
         receiptHeader: f.receiptHeader,
         receiptFooter: f.receiptFooter,
         portalEnabled: f.portalEnabled,
@@ -362,6 +371,17 @@ export function SettingsPage() {
             <input type="checkbox" checked={f.requireOpenShift} onChange={(e) => setF({ ...f, requireOpenShift: e.target.checked })} /> Staff must open a shift (cash
             drawer) before taking or refunding money — recommended once everyone is used to shifts
           </label>
+          <Field
+            label={`Pay later: credit limit for every customer (${settings.currencyCode})`}
+            full
+            hint="The most a customer may owe on their account when they have no limit of their own (set one on the customer page to change it for that person). Empty or 0 = only customers with their own limit can pay later."
+          >
+            <input className="input" inputMode="decimal" style={{ maxWidth: 200 }} value={f.creditText} onChange={(e) => setF({ ...f, creditText: e.target.value })} placeholder="0" />
+          </Field>
+          <label className="check" style={{ gridColumn: '1 / -1' }}>
+            <input type="checkbox" checked={f.autoPayOwed !== false} onChange={(e) => setF({ ...f, autoPayOwed: e.target.checked })} /> Money put into a customer's wallet (cash at
+            the counter, MoMo code, Paystack) first pays what they owe on their account
+          </label>
         </div>
 
         <h2 id="pins">Staff PINs & approvals</h2>
@@ -417,6 +437,10 @@ export function SettingsPage() {
           <Field label="Book up to (days ahead)">
             <input className="input" type="number" min={1} max={90} value={f.bookingMaxDaysAhead} onChange={(e) => setF({ ...f, bookingMaxDaysAhead: Number(e.target.value) })} />
           </Field>
+          <label className="check" style={{ gridColumn: '1 / -1' }}>
+            <input type="checkbox" checked={f.portalSelfStart !== false} onChange={(e) => setF({ ...f, portalSelfStart: e.target.checked })} /> Customers can start, pause and stop
+            their own time from the app (a paid booking, or their saved time on a free station). Paying is never done from here — only time that is already paid.
+          </label>
           <Field label="No-show after (minutes late)" hint="Bookings not checked in by then free the station">
             <input className="input" type="number" min={5} max={240} value={f.bookingGraceMinutes} onChange={(e) => setF({ ...f, bookingGraceMinutes: Number(e.target.value) })} />
           </Field>
@@ -570,10 +594,10 @@ function ChangePassword() {
       <ErrorBox error={m.error} />
       <div className="form-grid">
         <Field label="Current password">
-          <input className="input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} />
+          <PasswordInput className="input" value={cur} onChange={(e) => setCur(e.target.value)} />
         </Field>
         <Field label="New password" hint="At least 8 characters">
-          <input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+          <PasswordInput className="input" value={next} onChange={(e) => setNext(e.target.value)} />
         </Field>
       </div>
       <div>
@@ -626,7 +650,7 @@ function PaystackSettings() {
           <input className="input mono" value={f.publicKey} onChange={(e) => setF({ ...f, publicKey: e.target.value.trim() })} placeholder="pk_test_…" />
         </Field>
         <Field label="Secret key" hint={q.data?.hasSecretKey ? `Saved (${q.data.secretKeyHint}) — leave blank to keep it` : 'Never shown again after saving'}>
-          <input className="input mono" type="password" autoComplete="off" value={f.secretKey} onChange={(e) => setF({ ...f, secretKey: e.target.value.trim() })} placeholder="sk_test_…" />
+          <PasswordInput className="input mono" autoComplete="off" value={f.secretKey} onChange={(e) => setF({ ...f, secretKey: e.target.value.trim() })} placeholder="sk_test_…" />
         </Field>
         <Field label="Public address of this system (optional)" full hint="Where Paystack sends customers back after paying, e.g. https://zenaa.example.com. Leave blank to use the address they opened.">
           <input className="input" value={f.callbackBaseUrl} onChange={(e) => setF({ ...f, callbackBaseUrl: e.target.value.trim() })} placeholder="https://…" />

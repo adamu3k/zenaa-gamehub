@@ -115,7 +115,31 @@ export async function refundSession(ctx: Ctx, actor: Actor, sessionId: string, r
     if (refundable <= 0) throw conflict('Nothing left to refund on this session');
     const amount = input.amount ?? refundable;
     if (amount > refundable) throw badRequest(`At most ${refundable} can be refunded on this session`);
+    const rows = await refundSessionMoney(tx, actor, s.id, amount, input.method, input.reason, now);
+    await audit(tx, actor, amount === refundable && s.refundedAmount === 0 ? 'session.void' : 'session.refund', { type: 'session', id: s.id }, {
+      amount,
+      reason: input.reason,
+      methods: rows.map((r) => ({ method: r.method, amount: -r.amount })),
+    });
+    return { sessionId: s.id, stationId: s.stationId, customerId: s.customerId, amount, refunds: rows };
+  });
+  ctx.bus.emit({ type: 'sessions.changed', sessionId: result.sessionId, stationId: result.stationId });
+  ctx.bus.emit({ type: 'payments.changed' });
+  if (result.customerId) ctx.bus.emit({ type: 'customers.changed', customerId: result.customerId });
+  return result;
+}
 
+/** Gives `amount` of a (locked) session's payments back, newest payment first. Wallet-paid parts go back to the wallet. */
+export async function refundSessionMoney(
+  tx: DbOrTx,
+  actor: Actor,
+  sessionId: string,
+  amount: number,
+  method: z.infer<typeof PaymentMethodSchema> | undefined,
+  reason: string,
+  now: Date,
+) {
+    const s = { id: sessionId };
     const paid = await tx
       .select()
       .from(payments)
@@ -129,21 +153,11 @@ export async function refundSession(ctx: Ctx, actor: Actor, sessionId: string, r
       if (left <= 0) break;
       const take = Math.min(left, p.amount - (done.get(p.id) ?? 0));
       if (take <= 0) continue;
-      rows.push(await refundOne(tx, actor, p, take, input.method, input.reason, now));
+      rows.push(await refundOne(tx, actor, p, take, method, reason, now));
       left -= take;
     }
     if (left > 0) throw conflict('Could not match the refund to the payments on this session');
-    await audit(tx, actor, amount === refundable && s.refundedAmount === 0 ? 'session.void' : 'session.refund', { type: 'session', id: s.id }, {
-      amount,
-      reason: input.reason,
-      methods: rows.map((r) => ({ method: r.method, amount: -r.amount })),
-    });
-    return { sessionId: s.id, stationId: s.stationId, customerId: s.customerId, amount, refunds: rows };
-  });
-  ctx.bus.emit({ type: 'sessions.changed', sessionId: result.sessionId, stationId: result.stationId });
-  ctx.bus.emit({ type: 'payments.changed' });
-  if (result.customerId) ctx.bus.emit({ type: 'customers.changed', customerId: result.customerId });
-  return result;
+    return rows;
 }
 
 function emit(ctx: Ctx, r: PaymentRow) {

@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ErrorBox, Field, PageHeader, Segmented } from '../components/ui';
+import { ErrorBox, Field, PageHeader, Segmented, PasswordInput } from '../components/ui';
 import { del, get, patch, post, put } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import {
@@ -474,6 +474,17 @@ function Editor({ initial, preset, onClose, onStudio }: { initial: SocialPost | 
             </span>
           </div>
 
+          <AiAssistant
+            template={template}
+            fields={fields}
+            caption={caption}
+            onApply={(r) => {
+              if (r.template) setTemplate(r.template);
+              setFields((f) => ({ ...f, ...r.fields }));
+              if (r.caption) setCaption(r.caption);
+            }}
+          />
+
           <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <h3>Text & pictures</h3>
             {(TEMPLATES[template] ?? TEMPLATES.news).fields.map((f) =>
@@ -543,6 +554,211 @@ function Editor({ initial, preset, onClose, onStudio }: { initial: SocialPost | 
         </div>
       </div>
     </>
+  );
+}
+
+const AI_IDEAS = ['Make it about FIFA night this Friday, 7 PM', 'Shorter and more exciting', 'Pick a better look for a tournament result', 'Write it in Ghanaian pidgin'];
+
+/** "Ask AI": Claude or OpenAI fills or edits the text of this graphic (and the caption). Undo puts it back. */
+function AiAssistant({
+  template,
+  fields,
+  caption,
+  onApply,
+}: {
+  template: TemplateKey;
+  fields: Record<string, any>;
+  caption: string;
+  onApply(r: { template: string | null; fields: Record<string, string>; caption: string | null }): void;
+}) {
+  const { toast, can } = useApp();
+  const cfg = useQuery({ queryKey: ['social', 'ai'], queryFn: () => get<any>('/api/social/ai'), staleTime: 60_000 });
+  const [text, setText] = useState('');
+  const [lookToo, setLookToo] = useState(false);
+  const [undo, setUndo] = useState<{ template: TemplateKey; fields: Record<string, any>; caption: string } | null>(null);
+  const [note, setNote] = useState('');
+  const run = useMutation({
+    mutationFn: () => {
+      const defs = (TEMPLATES[template] ?? TEMPLATES.news).fields;
+      const textFields = Object.fromEntries(defs.filter((f) => f.kind !== 'image').map((f) => [f.key, typeof fields[f.key] === 'string' ? fields[f.key] : '']));
+      return post<any>('/api/social/ai/edit', {
+        instruction: text,
+        template,
+        fields: textFields,
+        fieldDefs: defs.map((f) => ({ key: f.key, label: f.label, kind: f.kind, hint: f.hint ?? f.placeholder })),
+        looks: lookToo ? Object.entries(TEMPLATES).map(([k, v]) => ({ key: k, label: v.label, group: v.group ?? '' })) : [],
+        allowLookChange: lookToo,
+        caption,
+      });
+    },
+    onSuccess: (r) => {
+      setUndo({ template, fields, caption });
+      onApply(r);
+      setNote(r.note || 'Done');
+    },
+    onError: (e: Error) => toast('error', e.message),
+  });
+  if (cfg.data && !cfg.data.connected)
+    return (
+      <div className="card card-pad ai-card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <h3>
+          <Sparkles size={16} style={{ verticalAlign: -3 }} /> Ask AI
+        </h3>
+        <span className="dim" style={{ fontSize: 13 }}>
+          Connect Claude or ChatGPT (OpenAI) to write and edit graphics for you.{' '}
+          {can('settings.manage') ? 'Social → Accounts & settings → AI assistant.' : 'Ask an admin to connect it in Social → Accounts & settings.'}
+        </span>
+      </div>
+    );
+  return (
+    <div className="card card-pad ai-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="toolbar">
+        <h3 style={{ flex: 1 }}>
+          <Sparkles size={16} style={{ verticalAlign: -3 }} /> Ask AI
+        </h3>
+        {cfg.data && <span className="dim" style={{ fontSize: 12 }}>{cfg.data.provider === 'anthropic' ? 'Claude' : 'OpenAI'} · {cfg.data.model}</span>}
+      </div>
+      <textarea
+        className="input"
+        rows={2}
+        value={text}
+        maxLength={1500}
+        placeholder="e.g. Make it about FIFA night this Friday 7 PM, entry GH₵20, winner gets GH₵500"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && text.trim().length > 1) run.mutate();
+        }}
+      />
+      <div className="toolbar" style={{ gap: 6 }}>
+        {AI_IDEAS.map((i) => (
+          <button key={i} type="button" className="btn btn-sm btn-ghost" onClick={() => setText(i)}>
+            {i}
+          </button>
+        ))}
+      </div>
+      <div className="toolbar" style={{ gap: 8 }}>
+        <label className="check" style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={lookToo} onChange={(e) => setLookToo(e.target.checked)} /> It may choose a different look
+        </label>
+        <div className="spacer" />
+        {undo && (
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => {
+              onApply({ template: undo.template, fields: undo.fields, caption: undo.caption });
+              setUndo(null);
+              setNote('Put back as it was');
+            }}
+          >
+            Undo
+          </button>
+        )}
+        <button type="button" className="btn btn-sm btn-primary" disabled={text.trim().length < 2 || run.isPending} onClick={() => run.mutate()}>
+          <Sparkles size={14} /> {run.isPending ? 'Writing…' : 'Do it'}
+        </button>
+      </div>
+      {note && !run.isPending && <span className="dim" style={{ fontSize: 12 }}>✓ {note}</span>}
+    </div>
+  );
+}
+
+/** Admin: connect Claude or OpenAI for "Ask AI". The key stays on the server. */
+function AiSettings() {
+  const { toast, can } = useApp();
+  const qc = useQueryClient();
+  const cfg = useQuery({ queryKey: ['social', 'ai'], queryFn: () => get<any>('/api/social/ai') });
+  const [provider, setProvider] = useState<'anthropic' | 'openai'>('anthropic');
+  const [key, setKey] = useState('');
+  const [model, setModel] = useState('');
+  useEffect(() => {
+    if (cfg.data) {
+      setProvider(cfg.data.provider);
+      setModel(cfg.data.model === cfg.data.defaults?.[cfg.data.provider] ? '' : cfg.data.model);
+    }
+  }, [cfg.data]);
+  const save = useMutation({
+    mutationFn: (forget?: boolean) => put<any>('/api/social/ai', { provider, apiKey: forget ? null : key, model }),
+    onSuccess: (_r, forget) => {
+      setKey('');
+      qc.invalidateQueries({ queryKey: ['social', 'ai'] });
+      toast('success', forget ? 'AI disconnected' : 'Saved');
+    },
+  });
+  const test = useMutation({ mutationFn: () => post('/api/social/ai/test'), onSuccess: () => toast('success', 'The AI answered — it works'), onError: (e: Error) => toast('error', e.message) });
+  const d = cfg.data;
+  if (!can('settings.manage')) return null;
+  const sameProvider = d?.provider === provider;
+  return (
+    <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="toolbar">
+        <h2 style={{ flex: 1 }}>
+          <Sparkles size={18} style={{ verticalAlign: -3 }} /> AI assistant
+        </h2>
+        {d?.connected ? <span className="badge badge-success">Connected</span> : <span className="badge">Not connected</span>}
+      </div>
+      <span className="dim" style={{ fontSize: 13 }}>
+        Adds an <b>Ask AI</b> box to every graphic: type what you want and the AI writes the text, can pick a look and writes the caption. You pay the AI company for what
+        you use (a small amount per request, billed by them). The key is kept on this server, never shown again.
+      </span>
+      <Segmented
+        value={provider}
+        onChange={setProvider}
+        options={[
+          { value: 'anthropic', label: 'Claude (Anthropic)' },
+          { value: 'openai', label: 'ChatGPT (OpenAI)' },
+        ]}
+      />
+      <Field
+        label="API key"
+        hint={
+          provider === 'anthropic' ? (
+            <>
+              Make one at{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
+                console.anthropic.com → API keys
+              </a>{' '}
+              (starts with sk-ant-).
+            </>
+          ) : (
+            <>
+              Make one at{' '}
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
+                platform.openai.com → API keys
+              </a>{' '}
+              (starts with sk-).
+            </>
+          )
+        }
+      >
+        <PasswordInput
+          className="input mono"
+          autoComplete="off"
+          value={key}
+          onChange={(e) => setKey(e.target.value.trim())}
+          placeholder={d?.connected && sameProvider ? `Saved (${d.keyHint}) — leave empty to keep it` : provider === 'anthropic' ? 'sk-ant-…' : 'sk-…'}
+        />
+      </Field>
+      <Field label="Model (optional)" hint={`Empty = ${d?.defaults?.[provider] ?? ''}`}>
+        <input className="input mono" value={model} onChange={(e) => setModel(e.target.value.trim())} placeholder={d?.defaults?.[provider]} />
+      </Field>
+      <ErrorBox error={save.error} />
+      <div className="toolbar">
+        <button className="btn btn-primary" disabled={save.isPending || (!key && !(d?.connected && sameProvider))} onClick={() => save.mutate(false)}>
+          Save
+        </button>
+        {d?.connected && (
+          <>
+            <button className="btn" disabled={test.isPending} onClick={() => test.mutate()}>
+              {test.isPending ? 'Testing…' : 'Test'}
+            </button>
+            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => window.confirm('Disconnect the AI and forget the key?') && save.mutate(true)}>
+              Disconnect
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1058,6 +1274,7 @@ function Accounts() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
+      <AiSettings />
       <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <h2>Post directly</h2>
         <ErrorBox error={saveAcc.error} />
@@ -1070,7 +1287,7 @@ function Accounts() {
           <input className="input mono" value={a.fbPageId} onChange={(e) => setA({ ...a, fbPageId: e.target.value.trim() })} />
         </Field>
         <Field label="Page access token" hint={d?.facebook.connected ? 'Saved — leave empty to keep it' : 'See Help → 23 for how to get a long-lasting token'}>
-          <input className="input mono" type="password" autoComplete="off" value={a.fbToken} onChange={(e) => setA({ ...a, fbToken: e.target.value.trim() })} placeholder={d?.facebook.connected ? '••••••••' : 'EAAB…'} />
+          <PasswordInput className="input mono" autoComplete="off" value={a.fbToken} onChange={(e) => setA({ ...a, fbToken: e.target.value.trim() })} placeholder={d?.facebook.connected ? '••••••••' : 'EAAB…'} />
         </Field>
         <div className="toolbar">
           <h3 style={{ flex: 1 }}>Instagram</h3>
@@ -1091,7 +1308,7 @@ function Accounts() {
         </div>
         {d?.telegram.title && <span className="muted">{d.telegram.title}</span>}
         <Field label="Bot token" hint="Telegram → @BotFather → /newbot. Then add the bot to your channel as an admin.">
-          <input className="input mono" type="password" autoComplete="off" value={a.tgBotToken} onChange={(e) => setA({ ...a, tgBotToken: e.target.value.trim() })} placeholder={d?.telegram.connected ? '••••••••' : '123456:ABC…'} />
+          <PasswordInput className="input mono" autoComplete="off" value={a.tgBotToken} onChange={(e) => setA({ ...a, tgBotToken: e.target.value.trim() })} placeholder={d?.telegram.connected ? '••••••••' : '123456:ABC…'} />
         </Field>
         <Field label="Channel">
           <input className="input mono" value={a.tgChatId} onChange={(e) => setA({ ...a, tgChatId: e.target.value.trim() })} placeholder="@yourchannel" />

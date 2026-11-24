@@ -3,6 +3,7 @@ import { Check, ExternalLink, Gift, Pencil, Plus, Trash2, X } from 'lucide-react
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MoneyInput } from '../components/money';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, Segmented } from '../components/ui';
 import { del, get, patch, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
@@ -137,7 +138,14 @@ function Claims() {
                         <X size={14} /> No
                       </button>
                     </>
-                  )}
+                  )}{' '}
+                  <DeleteButton
+                    icon
+                    url={`/api/rewards/claims/${c.id}`}
+                    what="this claim"
+                    confirmText={c.status === 'approved' ? 'Delete this claim from the list? The bonus already paid stays in their wallet history.' : 'Delete this claim?'}
+                    refresh={[['rewards']]}
+                  />
                 </td>
               </tr>
             ))}

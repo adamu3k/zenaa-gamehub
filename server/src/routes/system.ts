@@ -23,7 +23,11 @@ import {
   listBackupFiles,
   readBackup,
   restoreBackup,
+  NEEDS,
   safeBackupName,
+  SECTION_KEYS,
+  type SectionKey,
+  SECTIONS,
   writeBackupFile,
 } from '../services/backup.js';
 import { getKv, getSettings } from '../services/settings.js';
@@ -44,6 +48,12 @@ async function readJson<T>(file: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+function sectionsOf(raw: string | undefined): SectionKey[] | undefined {
+  if (!raw) return undefined;
+  const list = raw.split(',').filter((k): k is SectionKey => (SECTION_KEYS as string[]).includes(k));
+  return list.length ? list : undefined;
 }
 
 export async function systemRoutes(app: FastifyInstance, ctx: Ctx) {
@@ -71,14 +81,30 @@ export async function systemRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ───── Backups ─────
   app.get('/api/system/backup', backupPerm, async (req, reply) => {
-    const b = await createBackup(ctx);
+    const sections = sectionsOf((req.query as { sections?: string }).sections);
+    const b = await createBackup(ctx, sections);
     const buf = gzipBackup(b);
-    await audit(ctx.db, actorOf(req), 'system.backup_download', undefined, { size: buf.length });
+    await audit(ctx.db, actorOf(req), 'system.backup_download', undefined, { size: buf.length, sections: b.sections ?? 'all' });
     reply
       .header('content-type', 'application/gzip')
-      .header('content-disposition', `attachment; filename="${backupName('backup', ctx.clock.now())}"`)
+      .header('content-disposition', `attachment; filename="${backupName(b.sections ? `part-${b.sections.join('-')}` : 'backup', ctx.clock.now())}"`)
       .header('cache-control', 'no-store');
     return reply.send(buf);
+  });
+
+  app.get('/api/system/backup/sections', backupPerm, async () => ({ sections: SECTIONS, needs: NEEDS }));
+  /** Reads a backup file's header (what is in it) without restoring. */
+  app.post('/api/system/backup/inspect', { preHandler: app.auth('system.backup'), bodyLimit: 300 * 1024 * 1024 }, async (req) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw badRequest('Upload the backup file');
+    const b = readBackup(req.body);
+    return {
+      createdAt: b.createdAt,
+      appVersion: b.appVersion,
+      centerName: b.centerName,
+      sections: b.sections ?? SECTION_KEYS,
+      part: !!b.sections,
+      rows: Object.fromEntries(Object.entries(b.tables).map(([k, v]) => [k, (v as unknown[]).length])),
+    };
   });
 
   app.post('/api/system/backups/run', backupPerm, async (req) => {
@@ -101,7 +127,7 @@ export async function systemRoutes(app: FastifyInstance, ctx: Ctx) {
 
   /** Restore: upload the .json.gz (body) with ?confirm=RESTORE, or name a file already in the backup folder. */
   app.post('/api/system/restore', { preHandler: app.auth('system.backup'), bodyLimit: 300 * 1024 * 1024 }, async (req) => {
-    const qy = parse(z.object({ confirm: z.string(), file: z.string().optional() }), req.query);
+    const qy = parse(z.object({ confirm: z.string(), file: z.string().optional(), sections: z.string().optional() }), req.query);
     if (qy.confirm !== 'RESTORE') throw badRequest('Type RESTORE to confirm — this replaces all current data');
     let buf: Buffer;
     if (qy.file) {
@@ -115,7 +141,7 @@ export async function systemRoutes(app: FastifyInstance, ctx: Ctx) {
     // Safety copy of what is being replaced.
     const safety = await writeBackupFile(ctx, 'before-restore').catch(() => null);
     const actor = actorOf(req);
-    const counts = await restoreBackup(ctx, b);
+    const counts = await restoreBackup(ctx, b, sectionsOf(qy.sections));
     await audit(ctx.db, { staffId: null, ip: actor.ip }, 'system.restore', undefined, {
       by: req.staff!.username,
       from: b.createdAt,

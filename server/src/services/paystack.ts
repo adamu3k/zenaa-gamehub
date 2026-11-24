@@ -14,6 +14,7 @@ import { AppError, badRequest, conflict, notFound } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { getKv, getSettings, setKv } from './settings.js';
 import { formatCustomerCode, openShiftId, postWallet } from './wallet.js';
+import { payOwedFromWallet } from './sessions.js';
 
 const API = 'https://api.paystack.co';
 const KEY = 'integration.paystack';
@@ -252,6 +253,7 @@ async function credit(ctx: Ctx, id: string, data: any) {
       at: now,
     });
     const [u] = await tx.update(onlinePayments).set({ paymentId: p.id }).where(eq(onlinePayments.id, row.id)).returning();
+    await payOwedFromWallet(tx, row.customerId, { staffId: row.initiatedBy }, now);
     await audit(tx, { staffId: null }, 'paystack.credited', { type: 'online_payment', id: row.id }, { amount: row.amount, reference: row.reference, channel: data.channel });
     return u;
   });

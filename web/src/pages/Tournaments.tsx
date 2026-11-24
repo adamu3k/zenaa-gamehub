@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Banknote, Crown, Play, Plus, Shuffle, Trash2, Trophy, UserPlus, Users } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, Segmented } from '../components/ui';
 import { Avatar, Bracket, FORMAT_LABEL, GroupTables, placeLabel, ScoreLine, TStatus, type MatchV } from '../competitions/ui';
 import { del, get, patch, post, put } from '../lib/api';
@@ -37,7 +38,14 @@ export function TournamentsPage() {
       )}
       <div className="cx-tgrid">
         {(list.data ?? []).map((t) => (
-          <button key={t.id} type="button" className="cx-tcard" onClick={() => nav(`/tournaments/${t.id}`)}>
+          <div
+            key={t.id}
+            role="button"
+            tabIndex={0}
+            className="cx-tcard"
+            onClick={() => nav(`/tournaments/${t.id}`)}
+            onKeyDown={(e) => e.key === 'Enter' && nav(`/tournaments/${t.id}`)}
+          >
             <div className="toolbar">
               <TStatus s={t.status} />
               <span className="badge">{FORMAT_LABEL[t.format]}</span>
@@ -45,6 +53,15 @@ export function TournamentsPage() {
               <span className="dim" style={{ fontSize: 12 }}>
                 #{t.number}
               </span>
+              {can('competitions.manage') && (
+                <DeleteButton
+                  icon
+                  url={`/api/tournaments/${t.id}/everything`}
+                  what={`tournament "${t.name}"`}
+                  confirmText={`Delete "${t.name}" with all its players and matches? Its results also leave the leaderboard. This cannot be undone.`}
+                  refresh={[['competitions']]}
+                />
+              )}
             </div>
             <h3>{t.name}</h3>
             <div className="dim" style={{ fontSize: 13 }}>
@@ -64,7 +81,7 @@ export function TournamentsPage() {
                 </span>
               )}
             </div>
-          </button>
+          </div>
         ))}
       </div>
       {creating && <TournamentForm onClose={() => setCreating(false)} onSaved={(t) => nav(`/tournaments/${t.id}`)} />}
@@ -284,7 +301,7 @@ export function TournamentDetailPage() {
     },
   });
   const nav = useNavigate();
-  const remove = useMutation({ mutationFn: () => del(`/api/tournaments/${id}`), onSuccess: () => (refresh(), nav('/tournaments')) });
+  const remove = useMutation({ mutationFn: () => del(`/api/tournaments/${id}/everything`), onSuccess: () => (refresh(), nav('/tournaments')) });
   const d = q.data;
   if (q.error) return <ErrorBox error={q.error} />;
   if (!d) return <div className="muted">Loading…</div>;
@@ -341,11 +358,18 @@ export function TournamentDetailPage() {
                   Cancel
                 </button>
               )}
-              {(setup || t.status === 'cancelled') && (
-                <button className="btn btn-sm btn-ghost" style={{ color: '#fca5a5' }} onClick={() => window.confirm('Delete this tournament?') && remove.mutate()}>
-                  <Trash2 size={15} />
-                </button>
-              )}
+              <button
+                className="btn btn-sm btn-ghost"
+                style={{ color: '#fca5a5' }}
+                title="Delete tournament"
+                onClick={() =>
+                  window.confirm(
+                    setup ? 'Delete this tournament?' : 'Delete this tournament with all its players, matches and results? Its results also leave the leaderboard. This cannot be undone.',
+                  ) && remove.mutate()
+                }
+              >
+                <Trash2 size={15} /> Delete
+              </button>
             </div>
           )}
         </div>

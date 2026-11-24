@@ -39,9 +39,57 @@ Backups do not keep ZENAA running while the PC is off. They let you get everythi
 
 To keep downtime short, keep the old PC's IP address on the new PC (router → DHCP reservation). The TVs, PCs, consoles and MoMo phone then reconnect by themselves.
 
+### Backing up only some parts (v0.9.5)
+
+**Backup & updates → Choose parts…** makes a smaller file with only the parts you tick:
+
+| Part | What is in it |
+|---|---|
+| Settings, staff & user types | All settings, staff accounts, passwords, PINs, user types |
+| Stations, prices & promotions | Stations, categories, pricing plans, memberships, happy hours, promo codes |
+| Customers, sessions & money | Customers, wallets, sessions, payments, shifts, bookings, MoMo inbox, saved time, SMS queue |
+| Games, leaderboard, tournaments & Find match | Games, match results, tournaments and their players, Find match requests |
+| News, chat, rewards & social posts | News & posters, customer chat, rewards and claims, Social drafts and posts |
+| Audit trail | The audit trail |
+
+**Restoring a part file works differently from a full restore:**
+
+- It **adds and updates** the rows in the file. It does **not** delete anything else on the PC. (A full backup replaces everything.)
+- Some parts need others. For example, sessions belong to stations, and match results belong to customers. If the other PC does not have them, the restore stops, **nothing is changed**, and the message says which parts to restore too. The **Choose parts** window warns you about this before you download.
+- A row that clashes with a different row on the other PC (e.g. the same phone number on a different customer) also stops the restore with nothing changed.
+- When you restore from a file, the restore window shows what is in the file, and you can tick only some of its parts.
+
+Typical uses:
+
+- Copy your **prices and promotions** to a second branch: download *Stations, prices & promotions* and restore it there.
+- Keep a small daily copy of **customers and money** on your phone or in WhatsApp-to-self (keep it private).
+- Move only the **leaderboard and tournaments** to a new install that already has the same customers.
+
+### Moving everything to a new PC — checklist
+
+What a backup **does not** contain, and what you must copy by hand:
+
+| Item | Why it matters | What to do |
+|---|---|---|
+| The **`.env` file** in the ZENAA folder | Holds `JWT_SECRET`. Staff **PINs** and the **station screen apps' sign-in** are tied to it. With a new secret, every PIN must be set again and every station screen re-paired. | Copy the old `.env` to the new PC **before** the first start. Keep a copy somewhere safe (it is a secret: not on GitHub, not in group chats). |
+| `BACKUP_PATH` cloud folder | Where automatic backups go | Point the new PC's `.env` at the same Google Drive / OneDrive folder. |
+| The PC's **IP address** | TVs, PCs, consoles, the MoMo phone and smart plugs talk to it | Give the new PC the old address (router → DHCP reservation), or re-pair the devices. |
+| Smart plug firmware / Wi-Fi | Stored in the plugs, not in ZENAA | Nothing to do if the Wi-Fi is the same. |
+| HTTPS certificate / tunnel (if you set one up) | Customer portal over the internet | Set it up again (Help → 14). |
+
+Steps:
+
+1. Old PC: **Backup & updates → Download everything (1 file)**. Also copy the ZENAA folder's `.env` file to a USB stick.
+2. New PC: install Docker Desktop and ZENAA (README → Install). Put the old `.env` in the ZENAA folder **before** running `docker compose up -d`.
+3. Sign in with the admin from `.env`, open **Backup & updates → Restore from file…**, choose the file, keep every part ticked, type `RESTORE`.
+4. Sign in again with your usual account. Check: a staff PIN works, a station screen shows "connected", the customer list and today's money look right.
+5. Leave the old PC switched off (two servers with the same address confuse the devices).
+
+**Test your backups.** Once a month, restore the newest backup on a spare PC or laptop (any Windows PC with Docker). A backup you never tried is a hope, not a backup.
+
 ### Restore rules
 
-- A restore **replaces all data**. ZENAA first saves a safety copy (`zenaa-before-restore-….json.gz`).
+- A **full** restore **replaces all data**. A **part** restore only adds and updates the parts you tick. Either way ZENAA first saves a safety copy (`zenaa-before-restore-….json.gz`).
 - A backup from a **newer** ZENAA can't be restored on an older one. Update first.
 - A backup from an **older** ZENAA restores fine; new fields get their default values.
 

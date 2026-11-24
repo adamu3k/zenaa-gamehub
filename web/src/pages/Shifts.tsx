@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, ArrowUpFromLine, LockKeyhole, Printer, Unlock } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, ChevronDown, ChevronUp, HelpCircle, LockKeyhole, Printer, Unlock } from 'lucide-react';
 import { useState } from 'react';
 import { KIND_LABEL, MoneyInput } from '../components/money';
 import { ErrorBox, Field, Modal, PageHeader, StatCard } from '../components/ui';
@@ -18,6 +18,7 @@ export function ShiftsPage() {
   return (
     <>
       <PageHeader title="Shifts & cash drawer" subtitle="Open a shift with your float, take payments, then count the drawer to close." />
+      <ShiftGuide step={cur.data ? 2 : 1} />
       {cur.isLoading ? <div className="muted">Loading…</div> : cur.data ? <OpenShiftCard shift={cur.data} onView={() => setViewing(cur.data.id)} /> : <OpenShiftForm />}
       {can('shifts.manage') && <ShiftList onView={setViewing} />}
       {viewing && <ShiftDetail id={viewing} onClose={() => setViewing(null)} />}
@@ -25,10 +26,80 @@ export function ShiftsPage() {
   );
 }
 
+const STEPS = [
+  {
+    t: 'Open your shift',
+    d: 'At the start of work, count the cash already in the drawer (the "float" — change for customers) and type it in. Each staff member opens their own shift.',
+  },
+  {
+    t: 'Take payments',
+    d: 'Every payment you take (sessions, wallet top-ups, time sold, tabs) is added to your open shift automatically, split by cash, MoMo, card and wallet. Payments taken with no open shift are not in any drawer.',
+  },
+  {
+    t: 'Cash in / Cash out',
+    d: 'Money that goes in or out of the drawer that is not a sale: buying drinks, fuel, electricity units, paying wages, moving money to the safe or bank. Pick the reason so Finance can report expenses.',
+  },
+  {
+    t: 'Count & close',
+    d: 'At the end, count the notes and coins (and check the MoMo phone). ZENAA compares what you counted with what should be there: "over" means extra money, "short" means money is missing.',
+  },
+];
+
+/** How shifts work, in four steps (open by default until the first shift is closed). */
+function ShiftGuide({ step }: { step: number }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem('zenaa.shiftGuide') !== 'closed';
+    } catch {
+      return true;
+    }
+  });
+  const toggle = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem('zenaa.shiftGuide', open ? 'closed' : 'open');
+    } catch {
+      /* private mode */
+    }
+  };
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <button type="button" className="card-head" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', color: 'inherit', font: 'inherit' }} onClick={toggle}>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HelpCircle size={18} /> How shifts work
+        </h2>
+        <div className="spacer" />
+        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+      {open && (
+        <div className="card-pad shift-steps">
+          {STEPS.map((x, i) => (
+            <div key={x.t} className={`shift-step ${i + 1 === step ? 'now' : i + 1 < step ? 'done' : ''}`}>
+              <span className="shift-step-n">{i + 1}</span>
+              <div>
+                <strong>{x.t}</strong>
+                <div className="dim" style={{ fontSize: 13 }}>
+                  {x.d}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="dim" style={{ fontSize: 12, gridColumn: '1 / -1' }}>
+            <b>Expected cash</b> = opening float + cash taken − cash refunds − cash out + cash in. Managers see every shift below and can open any one to see its
+            transactions. Settings → Staff PINs & approvals can ask for a PIN to close a shift or move cash. Full guide: Help → 25.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OpenShiftForm() {
-  const { settings, toast } = useApp();
+  const { settings, toast, money } = useApp();
   const qc = useQueryClient();
   const [float, setFloat] = useState('');
+  const last = useQuery({ queryKey: ['shift', 'last-count'], queryFn: () => get<any>('/api/shifts/last-count') });
+  const lastCash = last.data?.last?.countedCash as number | null | undefined;
   const parsed = float.trim() ? parseMoney(float, settings.currencyMinorUnits) : 0;
   const m = useMutation({
     mutationFn: () => post('/api/shifts/open', { openingFloat: parsed }),
@@ -48,6 +119,16 @@ function OpenShiftForm() {
       <Field label={`Opening float (${settings.currencyCode})`} hint="Cash in the drawer right now">
         <MoneyInput value={float} onChange={setFloat} placeholder="0" autoFocus />
       </Field>
+      {lastCash != null && (
+        <div className="toolbar" style={{ gap: 8, fontSize: 13 }}>
+          <span className="dim">
+            The last shift ({last.data.last.staffName ?? 'staff'}, {formatDateTime(last.data.last.closedAt)}) left <b>{money(lastCash)}</b> in the drawer.
+          </span>
+          <button type="button" className="btn btn-sm" onClick={() => setFloat(String(lastCash / 10 ** settings.currencyMinorUnits))}>
+            Use {money(lastCash)}
+          </button>
+        </div>
+      )}
       <div>
         <button className="btn btn-primary" disabled={parsed == null || parsed < 0 || m.isPending} onClick={() => m.mutate()}>
           Open shift

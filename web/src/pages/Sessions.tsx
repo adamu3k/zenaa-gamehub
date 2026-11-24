@@ -18,6 +18,7 @@ const EVENT_LABEL: Record<string, string> = {
   system_pause: 'Paused by system (server outage)',
   payment: 'Payment received (tab)',
   refund: 'Refunded',
+  reduce: 'Time taken off',
 };
 
 export function SessionsPage() {

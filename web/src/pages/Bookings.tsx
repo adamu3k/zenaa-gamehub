@@ -90,7 +90,7 @@ export function BookingsPage() {
 }
 
 function BookingRow({ b }: { b: any }) {
-  const { can, toast } = useApp();
+  const { can, toast, money } = useApp();
   const qc = useQueryClient();
   const nav = useNavigate();
   const act = useMutation({
@@ -117,7 +117,18 @@ function BookingRow({ b }: { b: any }) {
         <span className="badge">{b.source === 'portal' ? 'Online' : 'Desk'}</span>
       </td>
       <td>
-        <StatusBadge status={b.status} />
+        <StatusBadge status={b.status} />{' '}
+        {b.payment === 'wallet' ? (
+          <span className="badge badge-success" title="Paid from the wallet — the time is on their saved time; check in uses it">
+            Paid {money(b.paidAmount)}
+          </span>
+        ) : b.payment === 'saved' ? (
+          <span className="badge badge-success" title="Plays from their saved time">
+            Saved time
+          </span>
+        ) : (
+          <span className="badge">Pay at counter</span>
+        )}
       </td>
       <td className="right">
         {live && can('bookings.manage') && (

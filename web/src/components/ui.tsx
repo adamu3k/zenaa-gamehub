@@ -1,5 +1,5 @@
-import { X } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { Eye, EyeOff, X } from 'lucide-react';
+import { type InputHTMLAttributes, useEffect, useState, type ReactNode } from 'react';
 
 export function Modal({
   title,
@@ -112,5 +112,26 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
       <div className="spacer" />
       {actions}
     </div>
+  );
+}
+
+/** Password box with an eye button to show or hide what was typed. */
+export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [show, setShow] = useState(false);
+  const { className, style, ...rest } = props;
+  return (
+    <span className="pw-wrap" style={style}>
+      <input {...rest} className={className ?? 'input'} type={show ? 'text' : 'password'} />
+      <button
+        type="button"
+        className="pw-eye"
+        onClick={() => setShow((v) => !v)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        title={show ? 'Hide' : 'Show'}
+        tabIndex={-1}
+      >
+        {show ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </span>
   );
 }

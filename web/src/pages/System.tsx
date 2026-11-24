@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CloudUpload, DatabaseBackup, Download, RefreshCw, Rocket, Upload } from 'lucide-react';
+import { CloudUpload, DatabaseBackup, Download, Eraser, RefreshCw, Rocket, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ErrorBox, Field, Modal, PageHeader } from '../components/ui';
+import { ErrorBox, Field, Modal, PageHeader, PasswordInput } from '../components/ui';
 import { ApiError, get, getToken, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import { formatDateTime } from '../lib/format';
@@ -26,6 +26,7 @@ export function SystemPage() {
     <>
       <PageHeader title="Backup & updates" subtitle={`ZENAA ${info.data?.version ?? ''} — keep a copy of everything, move to a new PC, and install new versions.`} />
       {can('system.backup') && <Backups info={info.data} />}
+      {can('settings.manage') && <Cleanup />}
       {can('system.update') && <Updates info={info.data} />}
     </>
   );
@@ -38,6 +39,7 @@ function Backups({ info }: { info: any }) {
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<{ file?: File; name?: string } | null>(null);
+  const [parts, setParts] = useState(false);
   const runNow = useMutation({
     mutationFn: () => post('/api/system/backups/run'),
     onSuccess: (r: any) => {
@@ -69,6 +71,9 @@ function Backups({ info }: { info: any }) {
             }}
           >
             <Download size={14} /> {busy ? 'Preparing…' : 'Download everything (1 file)'}
+          </button>
+          <button className="btn btn-sm" onClick={() => setParts(true)} title="Back up only some parts, e.g. just customers">
+            Choose parts…
           </button>
           <label className="btn btn-sm">
             <Upload size={14} /> Restore from file…
@@ -144,6 +149,185 @@ function Backups({ info }: { info: any }) {
         </table>
       </div>
       {restore && <RestoreModal {...restore} onClose={() => setRestore(null)} />}
+      {parts && <PartsModal onClose={() => setParts(false)} />}
+    </div>
+  );
+}
+
+/** Download a backup of only some parts of the app. */
+function PartsModal({ onClose }: { onClose(): void }) {
+  const q = useQuery({ queryKey: ['system', 'sections'], queryFn: () => get<any>('/api/system/backup/sections') });
+  const [chosen, setChosen] = useState<string[]>(['customers']);
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const sections: [string, { label: string; tables: string[] }][] = Object.entries(q.data?.sections ?? {});
+  const needs: Record<string, string[]> = q.data?.needs ?? {};
+  const missing = [...new Set(chosen.flatMap((k) => needs[k] ?? []))].filter((k) => !chosen.includes(k));
+  return (
+    <Modal
+      title="Back up some parts"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={!chosen.length || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await download(`/api/system/backup?sections=${chosen.join(',')}`, `zenaa-part-${chosen.join('-')}-${new Date().toISOString().slice(0, 10)}.json.gz`);
+                onClose();
+              } catch (e) {
+                setErr(e);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Download size={14} /> {busy ? 'Preparing…' : 'Download'}
+          </button>
+        </>
+      }
+    >
+      <p className="muted" style={{ fontSize: 13 }}>
+        Tick what to put in the file. A part file is smaller and can be restored on its own: it <b>adds and updates</b> those things on the other PC and leaves everything
+        else alone. To move a whole venue to a new PC, use <b>Download everything</b> instead.
+      </p>
+      <div className="check-grid" style={{ gridTemplateColumns: '1fr' }}>
+        {sections.map(([k, v]) => (
+          <label key={k} className="check">
+            <input type="checkbox" checked={chosen.includes(k)} onChange={() => setChosen(chosen.includes(k) ? chosen.filter((x) => x !== k) : [...chosen, k])} />
+            <span>
+              <b>{v.label}</b>
+            </span>
+          </label>
+        ))}
+      </div>
+      {missing.length > 0 && (
+        <div className="alert alert-warning" style={{ fontSize: 13 }}>
+          To restore this on a <b>new</b> PC, that PC also needs: {missing.map((k) => q.data?.sections?.[k]?.label ?? k).join('; ')}. Tick them too, or restore them from
+          another file first.
+        </div>
+      )}
+      <ErrorBox error={err || q.error} />
+    </Modal>
+  );
+}
+
+/** Admin: delete whole areas of data (with password). */
+function Cleanup() {
+  const { toast } = useApp();
+  const qc = useQueryClient();
+  const games = useQuery({ queryKey: ['competitions', 'games'], queryFn: () => get<any[]>('/api/games') });
+  const [gameId, setGameId] = useState('');
+  const q = useQuery({ queryKey: ['cleanup', gameId], queryFn: () => get<any>(`/api/cleanup${gameId ? `?gameId=${gameId}` : ''}`) });
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [auditDays, setAuditDays] = useState('');
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [typed, setTyped] = useState('');
+  const run = useMutation({
+    mutationFn: () =>
+      post<any>('/api/cleanup', {
+        areas: chosen,
+        password,
+        gameId: chosen.includes('leaderboard') && gameId ? gameId : undefined,
+        olderThanDays: chosen.includes('audit') && auditDays ? Number(auditDays) : undefined,
+      }),
+    onSuccess: (r) => {
+      const lines = Object.entries(r.results as Record<string, any>).map(([k, v]) => `${q.data?.areas?.[k]?.split(' (')[0] ?? k}: ${v.removed} removed${v.note ? ` — ${v.note}` : ''}`);
+      toast('success', lines.join(' · '));
+      setOpen(false);
+      setChosen([]);
+      setPassword('');
+      setTyped('');
+      qc.invalidateQueries();
+    },
+  });
+  const areas: [string, string][] = Object.entries(q.data?.areas ?? {});
+  const counts: Record<string, number> = q.data?.counts ?? {};
+  return (
+    <div className="card" id="cleanup" style={{ marginBottom: 14 }}>
+      <div className="card-head">
+        <h2>
+          <Eraser size={18} style={{ verticalAlign: -3 }} /> Clean up (delete data)
+        </h2>
+      </div>
+      <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="alert alert-warning" style={{ fontSize: 13 }}>
+          Use this to start fresh — e.g. after testing. Tick what to delete, then confirm with your password. <b>Download a backup first</b> (above) so you can get it
+          back. Money records (payments, sessions, shifts) are never deleted here, so your reports stay correct. Single items can also be deleted on their own pages.
+        </div>
+        <div className="check-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+          {areas.map(([k, label]) => (
+            <label key={k} className="check">
+              <input type="checkbox" checked={chosen.includes(k)} onChange={() => setChosen(chosen.includes(k) ? chosen.filter((x) => x !== k) : [...chosen, k])} />
+              <span>
+                {label}
+                {k !== 'outsideNews' && <span className="dim"> · {counts[k] ?? '…'}</span>}
+              </span>
+            </label>
+          ))}
+        </div>
+        {chosen.includes('leaderboard') && (
+          <Field label="Leaderboard of which game?">
+            <select className="select" style={{ maxWidth: 300 }} value={gameId} onChange={(e) => setGameId(e.target.value)}>
+              <option value="">All games</option>
+              {(games.data ?? []).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {chosen.includes('audit') && (
+          <Field label="Audit lines older than (days)" hint="Empty = all of them. The clean-up itself is always recorded.">
+            <input className="input" style={{ maxWidth: 160 }} type="number" min={1} value={auditDays} onChange={(e) => setAuditDays(e.target.value)} placeholder="e.g. 90" />
+          </Field>
+        )}
+        <div className="toolbar">
+          <button className="btn btn-danger" disabled={!chosen.length} onClick={() => setOpen(true)}>
+            <Eraser size={14} /> Delete the ticked data…
+          </button>
+        </div>
+      </div>
+      {open && (
+        <Modal
+          title="Delete data"
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" disabled={typed !== 'DELETE' || !password || run.isPending} onClick={() => run.mutate()}>
+                {run.isPending ? 'Deleting…' : 'Delete for good'}
+              </button>
+            </>
+          }
+        >
+          <div className="alert alert-danger">
+            This deletes:
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {chosen.map((k) => (
+                <li key={k}>{q.data?.areas?.[k]}</li>
+              ))}
+            </ul>
+          </div>
+          <Field label="Your password">
+            <PasswordInput className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          </Field>
+          <Field label="Type DELETE to confirm">
+            <input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value.toUpperCase())} />
+          </Field>
+          <ErrorBox error={run.error} />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -151,6 +335,21 @@ function Backups({ info }: { info: any }) {
 function RestoreModal({ file, name, onClose }: { file?: File; name?: string; onClose(): void }) {
   const { logout } = useApp();
   const [typed, setTyped] = useState('');
+  const meta = useQuery({
+    queryKey: ['system', 'inspect', file?.name, file?.size, name],
+    enabled: !!file,
+    queryFn: async () => {
+      const res = await fetch('/api/system/backup/inspect', { method: 'POST', headers: { authorization: `Bearer ${getToken() ?? ''}`, 'content-type': 'application/octet-stream' }, body: file });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new ApiError(res.status, data?.message ?? 'Could not read the file');
+      return data;
+    },
+  });
+  const labels = useQuery({ queryKey: ['system', 'sections'], queryFn: () => get<any>('/api/system/backup/sections') });
+  const inFile: string[] = meta.data?.sections ?? Object.keys(labels.data?.sections ?? {});
+  const [pick, setPick] = useState<string[] | null>(null);
+  const chosen = pick ?? inFile;
+  const everything = !meta.data?.part && chosen.length === Object.keys(labels.data?.sections ?? { a: 1 }).length;
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
@@ -158,7 +357,7 @@ function RestoreModal({ file, name, onClose }: { file?: File; name?: string; onC
     setBusy(true);
     setErr(null);
     try {
-      const url = `/api/system/restore?confirm=RESTORE${name ? `&file=${encodeURIComponent(name)}` : ''}`;
+      const url = `/api/system/restore?confirm=RESTORE${name ? `&file=${encodeURIComponent(name)}` : ''}${everything ? '' : `&sections=${chosen.join(',')}`}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { authorization: `Bearer ${getToken() ?? ''}`, ...(file ? { 'content-type': 'application/octet-stream' } : {}) },
@@ -191,16 +390,37 @@ function RestoreModal({ file, name, onClose }: { file?: File; name?: string; onC
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-danger" disabled={typed !== 'RESTORE' || busy} onClick={go}>
-            {busy ? 'Restoring…' : 'Replace all data'}
+          <button className="btn btn-danger" disabled={typed !== 'RESTORE' || busy || !chosen.length} onClick={go}>
+            {busy ? 'Restoring…' : everything ? 'Replace all data' : 'Restore the ticked parts'}
           </button>
         </>
       }
     >
-      <div className="alert alert-danger">
-        This <b>replaces all current data</b> with the backup <b className="mono">{file?.name ?? name}</b>. Anything recorded after that backup is removed (a safety copy of the
-        current data is saved to the backup folder first). Everyone is signed out.
+      {meta.data && (
+        <div className="dim" style={{ fontSize: 13 }}>
+          Backup of <b>{meta.data.centerName}</b> from {formatDateTime(meta.data.createdAt)} (ZENAA {meta.data.appVersion}){meta.data.part ? ' · part backup' : ''}.
+        </div>
+      )}
+      <div className="check-grid" style={{ gridTemplateColumns: '1fr' }}>
+        {inFile.map((k) => (
+          <label key={k} className="check">
+            <input type="checkbox" checked={chosen.includes(k)} onChange={() => setPick(chosen.includes(k) ? chosen.filter((x) => x !== k) : [...chosen, k])} />
+            <span>{labels.data?.sections?.[k]?.label ?? k}</span>
+          </label>
+        ))}
       </div>
+      {everything ? (
+        <div className="alert alert-danger">
+          This <b>replaces all current data</b> with the backup <b className="mono">{file?.name ?? name}</b>. Anything recorded after that backup is removed (a safety copy of
+          the current data is saved to the backup folder first). Everyone is signed out.
+        </div>
+      ) : (
+        <div className="alert alert-warning">
+          Only the ticked parts are restored. They are <b>added or brought up to date</b>; nothing else on this PC is removed. If they point at things this PC does not have
+          (e.g. sessions for stations that are not here), nothing changes and you are told what else to restore. A safety copy is saved first.
+        </div>
+      )}
+      <ErrorBox error={meta.error} />
       <Field label='Type RESTORE to confirm'>
         <input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value.toUpperCase())} autoFocus />
       </Field>

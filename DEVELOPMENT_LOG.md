@@ -1,5 +1,42 @@
 # Development Log
 
+## 2026-11-24 — v0.9.8 Owed money as a minus balance, paying it from the app (MoMo code / wallet), game packages when booking, one-click publish
+- Setting `autoPayOwed` (default on): money put into a wallet — staff deposit, MoMo code top-up (`momo.ts` credit), Paystack (`paystack.ts` credit) — first pays what the customer owes (`payOwedFromWallet` → `payTabTx`, oldest first, wallet tender). `payTab` now wraps `payTabTx`.
+- Portal `POST /api/portal/account/pay-from-wallet`; `info.autoPayOwed`. Portal "Main balance" = wallet − owed, red with "You owe" when below zero; `PayOwedCard` (Pay from my wallet / Pay with MoMo — the MoMo code card prefilled with the amount owed). Staff customer list shows "owes −…", customer detail shows the main balance in red.
+- `GET /api/portal/booking-quote` takes `planId` and returns `options` (every price and game package for the station with its cost for the booking). Booking page: "Price / game package" picker; a package sets the booking length to the package's.
+- `tools/publish-update.ps1`: type-checks server and web before uploading (`-NoCheck` to skip), `-Yes` for no questions, then offers to rebuild ZENAA on this PC (`-Rebuild` / `-NoRebuild`).
+- Tests: `owed-v098.test.ts` (4).
+
+## 2026-11-24 — v0.9.7 Take time off a session, Book now, any-minute bookings
+- Migration 0013: `session_event_type` gets `reduce`.
+- `reduceSession` (`POST /api/sessions/:id/reduce`): minutes off a running fixed-time session (at least 1 minute stays). `back`: saved (onto the customer's saved time — station type when it came from saved time, else the price's type), refund (saved-time part goes back as time; bought part cuts the price by its share; money back only beyond the new price — needs `payments.refund`; a pay-later session just owes less), keep (shorter, same price). Refund logic shared via `refundSessionMoney` in `refunds.ts`.
+- Portal `POST /api/portal/play/:id/reduce` (own prepaid session, back to saved time). App play card "− Time".
+- Station card: "+ Time" / "− Time"; the dialog switches between Add time and Take time off.
+- Bookings: `now: true` starts at the current minute without the advance-notice rule. App booking page: ⚡ Book now / Pick a time (30-min list) / Exact time (any minute), and "Other length…" (hours + minutes, 15 min–12 h).
+- Docs: 26 sections 9–10. Tests: `reduce-v097.test.ts` (4). 153/153.
+
+## 2026-11-24 — v0.9.6 Pay later accounts, paid bookings, play from the app, time per station type, chat people, phone notifications
+- Migration 0012: `customer_charges` (things on a customer's account besides unpaid sessions), `push_subscriptions`, `customers.time_by_category` + `last_seen_at`, `customer_time_log.category_id`, bookings `payment` / `plan_id` / `paid_amount` / `paid_seconds`.
+- Account (tab): `outstandingFor` = unpaid sessions (any status) + unpaid charges; `checkCredit` falls back to the new `defaultCreditLimit` setting. Start prepaid with `payLater`; end with `payLater` + `accountId` (walk-ins); `addCharge` / `removeCharge`; `payTab` pays oldest first, split tenders allocated per item (`/api/customers/:id/charges`, `/api/customers/charges/:id`, `/api/customers/:id/account/pay`). Customer page Account card; Start/End dialogs ask "Paying now / Put on account".
+- Extend: `source` pay | saved | tab and `accountId` (another customer's wallet, saved time or account; another customer's tab becomes a charge on them).
+- Saved time per station type (`timeBuckets`, `playableSeconds`, `postTime` categoryId; untyped/old time plays anywhere). `convertTime` at equal value via each type's cheapest hourly price (`hourlyValue`); staff and portal endpoints with preview.
+- Bookings: `pay` counter | wallet | saved; wallet payment buys the time onto saved time (cancel keeps it); `payBooking`; `defaultPlanFor`; `/api/portal/booking-quote`.
+- `services/self-play.ts`: portal start (paid booking from 15 min before, or saved time on a free station not booked by someone else), pause (always locks), resume, stop (saves the rest). Setting `portalSelfStart`.
+- `services/push.ts`: Web Push with `web-push` (VAPID keys generated into kv; request built by `generateRequestDetails`, sent through `ctx.fetch`; 404/410 removes the subscription). Sent for DMs, match challenge/accept, staff booking confirm/cancel, 5-min warning, time up. `sw.js` push + notificationclick. Portal Profile → Notifications (explains https / iPhone limits).
+- Chat: `customerPeople` (search + online/playing), last-seen updated by customer auth (≤ once a minute). Portal People finder.
+- Portal `PortalPlay.tsx`: play card with live clock, Play now, booking Pay now / Start, pay choice when booking, saved time per type + Change type, notifications card.
+- Docs: new 26. Tests: `account-v096.test.ts` (8). 149/149.
+
+## 2026-11-23 — v0.9.5 Speed, deleting & clearing data, part backups, Ask AI, chat, shifts guide
+- Speed / black screen: pages lazy-load (`web/src/lib/lazy.tsx`: retries, one reload on a stale build, `PageBoundary` with Try again), spinner in `index.html`, main pages pre-fetched after start. Build writes `.br`/`.gz` (vite plugin) and the server sends them (`preCompressed`), hashed assets cached for a year, `index.html`/`sw.js` no-cache. First load 960 KB → 337 KB (106 KB gzip). `/api/auth/me` retries on network errors instead of signing out.
+- `PasswordInput` (show/hide eye) on every password box, staff and customer app.
+- New `server/src/routes/cleanup.ts`: delete customer (removed, or wiped to "Deleted customer" when payments/results point to it; blocked with wallet money, saved time, a tab or a running session), price, membership, happy hour, promo code (hidden via new `deleted_at` columns when used — migration 0011), Find match request, tournament with results (`/everything`), reward claim, chat room, audit line, outside news stories (hide list). `GET/POST /api/cleanup` clears whole areas with the admin's password; recorded in the audit trail. `DeleteButton` component on the pages.
+- Part backups: `SECTIONS` in `services/backup.ts`; `GET /api/system/backup?sections=`, `POST /api/system/backup/inspect`, part restore merges (upsert by primary key) in one transaction and explains missing parts. System page: Choose parts…, restore picks parts, Clean up card.
+- Ask AI: `services/ai.ts` (Claude via `@anthropic-ai/sdk`, default `claude-opus-5-5`, low effort, server-side fallback; or OpenAI chat completions). Key in kv, never sent to browsers. `/api/social/ai*`; editor card with Undo; settings card.
+- Chat: refresh, avatars (rooms + messages), find player, clear chat, no scroll jump. User types: members add/remove. Audit: search, staff filter. Shifts: 4-step guide, last drawer count suggestion (`/api/shifts/last-count`).
+- Social looks: quint easing, figure settle, soft-light grade instead of a filter pass (faster video), phone layout shows the picture first.
+- Docs: 17 (part backups, new-PC checklist incl. copying `.env`), new 25. Tests: cleanup, part backup, AI (mocked).
+
 ## 2026-11-23 — v0.9.4 Blank canvas, background remover, stronger looks, better 3D prompts
 - New `web/src/social/Studio.tsx` (**Blank canvas**): a small design tool with no libraries. Headings, text, boxes, circles, pictures and the ZMG logo; move, resize, turn, layers (order, hide, lock), colours with fades, outline, shadow/glow, picture brightness/contrast/colour, undo/redo, keyboard shortcuts, drag-drop and paste. Autosaves in the browser; Save/Open an editable `.zmgdesign.json`; PNG/JPG download; **Use in a post** opens the post editor with the new `custom` look ("Your own design").
 - `removeBackground()` in graphics.ts: flood-fills plain backgrounds from the top/side edges, softens the edge and trims. Button under every picture field (with Gentler / Stronger / Original) and in the Studio.

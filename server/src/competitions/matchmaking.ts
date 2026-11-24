@@ -17,6 +17,7 @@ import { getGame, loadPlayers, ref } from './common.js';
 import { computeStats, MIN_RANKED_MATCHES, START_RATING, tierFor } from './engine.js';
 import { matchView, playedMatches } from './leaderboard.js';
 import { recordResult, ResultSchema } from './tournaments.js';
+import { notifyLater } from '../services/push.js';
 
 const emit = (ctx: Ctx) => ctx.bus.emit({ type: 'competitions.changed' });
 const MAX_OPEN_REQUESTS = 3;
@@ -125,6 +126,7 @@ export async function createRequest(ctx: Ctx, customerId: string, raw: unknown, 
   if (b.targetCustomerId) {
     const p = await loadPlayers(ctx.db, [customerId]);
     ctx.bus.emit({ type: 'alert', level: 'info', message: `⚔️ ${p.get(customerId)?.name} challenged a player to a match` });
+    notifyLater(ctx, b.targetCustomerId, { title: '⚔️ New match challenge', body: `${p.get(customerId)?.name ?? 'A player'} challenged you${b.note ? `: ${b.note.slice(0, 80)}` : ''}. Tap to accept.`, url: '/portal/match', tag: `match-${r.id}` });
   }
   emit(ctx);
   return r;
@@ -250,6 +252,7 @@ export async function acceptRequest(ctx: Ctx, requestId: string, customerId: str
   });
   const p = await loadPlayers(ctx.db, [out.homeId, out.awayId]);
   ctx.bus.emit({ type: 'alert', level: 'info', message: `🎮 Match on: ${p.get(out.homeId!)?.name} vs ${p.get(out.awayId!)?.name}` });
+  notifyLater(ctx, out.homeId, { title: '🎮 Match on!', body: `${p.get(out.awayId!)?.name ?? 'A player'} accepted your match request.`, url: '/portal/match', tag: `match-${out.id}` });
   emit(ctx);
   return out;
 }

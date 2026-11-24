@@ -2026,7 +2026,8 @@ function ground3(c: C, a: Assets, p: Pal3, W: number, H: number, t: number, pat 
   }
 }
 
-const fade = (t: number, s: number, d = 0.5) => easeOut(step(t, s, d));
+const easeOutQuint = (p: number) => 1 - (1 - clamp(p)) ** 5;
+const fade = (t: number, s: number, d = 0.5) => easeOutQuint(step(t, s, d * 1.25));
 
 function say(c: C, s: unknown, x: number, y: number, font: string, color: string | CanvasGradient, align: CanvasTextAlign = 'left', alpha = 1, spacing = 0, base: CanvasTextBaseline = 'top') {
   const str = String(s ?? '');
@@ -2232,7 +2233,11 @@ function figure(c: C, im: HTMLImageElement | null, p: Pal3, x: number, y: number
   if (q <= 0) return;
   c.save();
   c.globalAlpha = q;
-  c.translate(0, (1 - q) * 70);
+  // Rise a little and settle (scale 96% → 100%) around the bottom-centre of the box.
+  const k = 0.96 + 0.04 * q;
+  c.translate(x + w / 2, y + h);
+  c.scale(k, k);
+  c.translate(-(x + w / 2), -(y + h) + (1 - q) * 36);
   if (!im) {
     c.fillStyle = soft(p, 0.18);
     const cx = x + w / 2;
@@ -4490,9 +4495,12 @@ function finish(draw: Draw): Draw {
       const g = grade.getContext('2d')!;
       g.clearRect(0, 0, W, H);
       g.drawImage(c.canvas, 0, 0);
-      c.filter = 'contrast(1.08) saturate(1.22)';
+      // Soft-light the frame onto itself: richer colour and contrast, fast enough for every video frame.
+      c.globalAlpha = 0.32;
+      c.globalCompositeOperation = 'soft-light';
       c.drawImage(grade, 0, 0);
-      c.filter = 'none';
+      c.globalCompositeOperation = 'source-over';
+      c.globalAlpha = 1;
     }
     // light sweep from the top corner
     const lx = W * (0.15 + 0.1 * Math.sin(Math.min(t, 6) * 0.6));

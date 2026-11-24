@@ -6,12 +6,15 @@ import { and, asc, eq, gt, gte, inArray, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Actor, Ctx } from '../context.js';
 import type { DbOrTx } from '../db/index.js';
-import { bookings, customers, sessions, stationCategories, stations } from '../db/schema.js';
+import { bookings, customers, pricingPlans, sessions, stationCategories, stations } from '../db/schema.js';
 import { normalizePhone } from '../lib/countries.js';
 import { AppError, badRequest, conflict, notFound } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { getSettings, type AppSettings } from './settings.js';
-import { formatCustomerCode } from './wallet.js';
+import { collectPayment, formatCustomerCode } from './wallet.js';
+import { playableSeconds, postTime, priceTime } from './time-bank.js';
+import { notifyLater } from './push.js';
+import { moneyText } from './sms.js';
 
 export const LIVE_STATUSES = ['pending', 'confirmed', 'checked_in'] as const;
 const MAX_UPCOMING_PER_CUSTOMER = 3;
@@ -25,7 +28,66 @@ export const BookingCreateSchema = z.object({
   customerId: z.string().uuid().nullish(),
   contactName: z.string().trim().max(80).nullish(),
   contactPhone: z.string().trim().max(24).nullish(),
+  /** counter = pay when they arrive; wallet = pay now from the wallet; saved = play from saved time. */
+  pay: z.enum(['counter', 'wallet', 'saved']).default('counter'),
+  /** Price to pay with (wallet). Default: the station's cheapest hourly price. */
+  planId: z.string().uuid().nullish(),
+  /** Book now: the booking starts this minute (no advance notice needed). */
+  now: z.boolean().optional(),
 });
+
+export const BookingPaySchema = z.object({ pay: z.enum(['wallet', 'saved']), planId: z.string().uuid().nullish() });
+
+/** The plan used when nobody chose one: the cheapest hourly price for that station type, else for all stations. */
+export async function defaultPlanFor(tx: DbOrTx, station: { categoryId: string | null }) {
+  const plans = (await tx.select().from(pricingPlans).where(eq(pricingPlans.active, true))).filter((p) => !p.deletedAt && (!p.categoryId || p.categoryId === station.categoryId));
+  const rank = (p: (typeof plans)[number]) => [p.categoryId === station.categoryId && station.categoryId ? 0 : 1, p.kind === 'time_rate' ? 0 : 1, p.sortOrder, p.ratePerHour] as number[];
+  plans.sort((a, b) => {
+    const x = rank(a);
+    const y = rank(b);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
+    return 0;
+  });
+  return plans[0] ?? null;
+}
+
+/**
+ * Pays for a booking inside a transaction. wallet: takes the price from the wallet and puts the time on the
+ * customer's saved time (so cancelling never loses it); saved: checks there is enough saved time.
+ */
+async function payForBooking(
+  tx: DbOrTx,
+  b: { id: string; number: number; customerId: string | null; stationId: string; startAt: Date; endAt: Date },
+  pay: 'wallet' | 'saved',
+  planId: string | null | undefined,
+  actor: Actor,
+  now: Date,
+) {
+  if (!b.customerId) throw badRequest('Paying ahead needs a customer account');
+  const [c] = await tx.select().from(customers).where(eq(customers.id, b.customerId));
+  const [station] = await tx.select().from(stations).where(eq(stations.id, b.stationId));
+  const minutes = Math.round((b.endAt.getTime() - b.startAt.getTime()) / 60_000);
+  if (pay === 'saved') {
+    const have = playableSeconds(c, station.categoryId);
+    if (have < minutes * 60) {
+      throw conflict(
+        `You have ${Math.floor(have / 60)} min of saved time for ${station.name}${c.savedSeconds > have ? ' (some of your time is for another station type — change it in Wallet → Saved time)' : ''}. Book a shorter time or pay another way.`,
+      );
+    }
+    return { payment: 'saved', planId: null, paidAmount: 0, paidSeconds: minutes * 60 };
+  }
+  const plan = planId ? (await tx.select().from(pricingPlans).where(eq(pricingPlans.id, planId)))[0] : await defaultPlanFor(tx, station);
+  if (!plan || !plan.active || plan.deletedAt) throw badRequest('No price is set for this station — pay at the counter');
+  if (plan.categoryId && plan.categoryId !== station.categoryId) throw badRequest('That price is for another station type');
+  const price = await priceTime(tx, plan, c, minutes);
+  if (c.balance < price.net) {
+    const st = await getSettings(tx);
+    throw conflict(`Your wallet has ${moneyText(c.balance, st)} but this booking costs ${moneyText(price.net, st)} — top up first or pay at the counter`);
+  }
+  await collectPayment(tx, { amount: price.net, method: 'wallet', kind: 'session', actor, customerId: c.id, note: `Booking #${b.number} paid ahead`, at: now });
+  await postTime(tx, { customerId: c.id, seconds: price.minutes * 60, kind: 'bought', actor, at: now, categoryId: plan.categoryId ?? station.categoryId, planName: plan.name, amount: price.net, note: `Booking #${b.number}` });
+  return { payment: 'wallet', planId: plan.id, paidAmount: price.net, paidSeconds: price.minutes * 60 };
+}
 
 const toMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
@@ -78,13 +140,14 @@ export async function createBooking(
   const input = BookingCreateSchema.parse(raw);
   const settings = await getSettings(ctx.db);
   const now = ctx.clock.now();
-  const start = input.startAt;
+  // "Book now" starts at the current minute.
+  const start = input.now ? new Date(Math.floor(now.getTime() / 60_000) * 60_000) : input.startAt;
   const end = new Date(start.getTime() + input.minutes * 60_000);
   const portal = who.source === 'portal';
 
   if (portal) {
     if (!settings.bookingsEnabled) throw new AppError(403, 'Online booking is switched off — please call the centre', 'forbidden');
-    if (start.getTime() < now.getTime() + settings.bookingMinNoticeMinutes * 60_000) {
+    if (!input.now && start.getTime() < now.getTime() + settings.bookingMinNoticeMinutes * 60_000) {
       throw badRequest(`Bookings must be made at least ${settings.bookingMinNoticeMinutes} minutes ahead`);
     }
     if (start.getTime() > now.getTime() + settings.bookingMaxDaysAhead * 86_400_000) {
@@ -139,16 +202,47 @@ export async function createBooking(
         updatedAt: now,
       })
       .returning();
+    let row = b;
+    if (input.pay !== 'counter') {
+      const paid = await payForBooking(tx, b, input.pay, input.planId, portal ? { staffId: null } : who.actor, now);
+      [row] = await tx.update(bookings).set(paid).where(eq(bookings.id, b.id)).returning();
+    }
     await audit(tx, portal ? { staffId: null } : who.actor, 'booking.create', { type: 'booking', id: b.id }, {
       station: station.code,
       startAt: start.toISOString(),
       minutes: input.minutes,
       source: who.source,
       customerId,
+      pay: input.pay,
+      paid: row.paidAmount || undefined,
     });
-    return b;
+    return row;
   });
   ctx.bus.emit({ type: 'bookings.changed', bookingId: row.id, stationId: row.stationId });
+  if (row.payment !== 'counter' && customerId) {
+    ctx.bus.emit({ type: 'customers.changed', customerId });
+    ctx.bus.emit({ type: 'payments.changed' });
+  }
+  return row;
+}
+
+/** Pays for an existing "pay at the counter" booking from the app (wallet or saved time). */
+export async function payBooking(ctx: Ctx, customerId: string, id: string, raw: unknown) {
+  const body = BookingPaySchema.parse(raw);
+  const now = ctx.clock.now();
+  const row = await ctx.db.transaction(async (tx) => {
+    const [b] = await tx.select().from(bookings).where(eq(bookings.id, id)).for('update');
+    if (!b || b.customerId !== customerId) throw notFound('Booking');
+    if (b.status !== 'pending' && b.status !== 'confirmed') throw conflict(`This booking is ${b.status.replace('_', ' ')}`);
+    if (b.payment !== 'counter') throw conflict('This booking is already paid');
+    const paid = await payForBooking(tx, b, body.pay, body.planId, { staffId: null }, now);
+    const [u] = await tx.update(bookings).set({ ...paid, updatedAt: now }).where(eq(bookings.id, b.id)).returning();
+    await audit(tx, { staffId: null }, 'booking.pay', { type: 'booking', id: b.id }, { pay: body.pay, amount: paid.paidAmount, customerId });
+    return u;
+  });
+  ctx.bus.emit({ type: 'bookings.changed', bookingId: row.id, stationId: row.stationId });
+  ctx.bus.emit({ type: 'customers.changed', customerId });
+  ctx.bus.emit({ type: 'payments.changed' });
   return row;
 }
 
@@ -181,6 +275,15 @@ export async function changeBooking(
     return u;
   });
   ctx.bus.emit({ type: 'bookings.changed', bookingId: row.id, stationId: row.stationId });
+  if (who.by === 'staff' && row.customerId && (action === 'confirm' || action === 'cancel')) {
+    const when = row.startAt.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: (await getSettings(ctx.db)).timezone });
+    notifyLater(ctx, row.customerId, {
+      title: action === 'confirm' ? '✅ Booking confirmed' : '❌ Booking cancelled',
+      body: action === 'confirm' ? `See you ${when}!` : `Your booking for ${when} was cancelled${reason ? `: ${reason}` : ''}.${row.payment === 'wallet' ? ' The time you paid for is on your saved time.' : ''}`,
+      url: '/portal/book',
+      tag: `booking-${row.id}`,
+    });
+  }
   return row;
 }
 

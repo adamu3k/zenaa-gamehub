@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, Segmented } from '../components/ui';
 import { get, patch, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
@@ -176,6 +177,11 @@ function PlanForm({ plan, cats, onClose }: { plan: any; cats: any[]; onClose(): 
       onClose={onClose}
       footer={
         <>
+          {plan && (
+            <span style={{ marginRight: 'auto' }}>
+              <DeleteButton url={`/api/pricing-plans/${plan.id}`} what={`price "${plan.name}"`} refresh={[['plans']]} onDone={onClose} small={false} />
+            </span>
+          )}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
@@ -262,9 +268,23 @@ function TierForm({ tier, onClose }: { tier: any; onClose(): void }) {
       title={tier ? 'Edit tier' : 'New membership tier'}
       onClose={onClose}
       footer={
-        <button className="btn btn-primary" disabled={!f.name || m.isPending} onClick={() => m.mutate()}>
-          Save
-        </button>
+        <>
+          {tier && (
+            <span style={{ marginRight: 'auto' }}>
+              <DeleteButton
+                url={`/api/membership-tiers/${tier.id}`}
+                what={`membership "${tier.name}"`}
+                confirmText={`Delete the "${tier.name}" membership? Customers on it go back to no membership.`}
+                refresh={[['tiers'], ['customers']]}
+                onDone={onClose}
+                small={false}
+              />
+            </span>
+          )}
+          <button className="btn btn-primary" disabled={!f.name || m.isPending} onClick={() => m.mutate()}>
+            Save
+          </button>
+        </>
       }
     >
       <ErrorBox error={m.error} />

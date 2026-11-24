@@ -1,0 +1,1 @@
+ALTER TYPE "public"."session_event_type" ADD VALUE 'reduce';

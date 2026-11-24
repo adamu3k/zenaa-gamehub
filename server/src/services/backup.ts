@@ -69,12 +69,49 @@ export interface BackupFile {
   migrations: number;
   createdAt: string;
   centerName: string;
+  /** Present on a part backup: which sections it holds (only those tables are in `tables`). */
+  sections?: SectionKey[];
   tables: Record<string, unknown[]>;
 }
 
-export async function createBackup(ctx: Ctx): Promise<BackupFile> {
+/**
+ * Parts of the app that can be backed up and restored on their own. A table not listed here belongs to
+ * "setup" (it is new and was not sorted yet), so a part backup never silently drops anything.
+ */
+export const SECTIONS = {
+  setup: { label: 'Settings, staff & user types', tables: ['settings', 'staff', 'staff_roles'] },
+  stations: { label: 'Stations, prices & promotions', tables: ['station_categories', 'stations', 'pricing_plans', 'membership_tiers', 'happy_hours', 'promo_codes'] },
+  customers: {
+    label: 'Customers, sessions & money',
+    tables: ['customers', 'shifts', 'sessions', 'session_events', 'payments', 'wallet_transactions', 'bookings', 'online_payments', 'momo_requests', 'momo_sms', 'customer_time_log', 'sms_outbox', 'customer_charges', 'push_subscriptions'],
+  },
+  competitions: { label: 'Games, leaderboard, tournaments & Find match', tables: ['games', 'tournaments', 'tournament_entries', 'matches', 'match_requests'] },
+  community: { label: 'News, chat, rewards & social posts', tables: ['posts', 'chat_messages', 'reward_offers', 'reward_claims', 'social_posts', 'social_media'] },
+  audit: { label: 'Audit trail', tables: ['audit_logs'] },
+} as const;
+export type SectionKey = keyof typeof SECTIONS;
+export const SECTION_KEYS = Object.keys(SECTIONS) as SectionKey[];
+
+function sectionOf(table: string): SectionKey {
+  for (const k of SECTION_KEYS) if ((SECTIONS[k].tables as readonly string[]).includes(table)) return k;
+  return 'setup';
+}
+
+/** What each section needs to already be on the PC when it is restored on its own. */
+export const NEEDS: Record<SectionKey, SectionKey[]> = {
+  setup: [],
+  stations: [],
+  customers: ['setup', 'stations'],
+  competitions: ['setup', 'stations', 'customers'],
+  community: ['setup', 'customers', 'competitions'],
+  audit: ['setup'],
+};
+
+export async function createBackup(ctx: Ctx, sections?: SectionKey[]): Promise<BackupFile> {
   const tables: Record<string, unknown[]> = {};
+  const part = sections && sections.length && sections.length < SECTION_KEYS.length ? new Set(sections) : null;
   for (const t of await tablesInOrder(ctx.db)) {
+    if (part && !part.has(sectionOf(t))) continue;
     const [r] = await q<{ rows: unknown[] }>(ctx.db, sql.raw(`select coalesce(json_agg(x), '[]'::json) as rows from ${ident(t)} x`));
     tables[t] = (r?.rows as unknown[]) ?? [];
   }
@@ -86,6 +123,7 @@ export async function createBackup(ctx: Ctx): Promise<BackupFile> {
     migrations: await migrationCount(ctx.db),
     createdAt: ctx.clock.now().toISOString(),
     centerName: s.centerName,
+    ...(part ? { sections: [...part] } : {}),
     tables,
   };
 }
@@ -112,14 +150,45 @@ export function readBackup(buf: Buffer): BackupFile {
 export const backupName = (label: string, at: Date) =>
   `zenaa-${label}-${at.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 13)}.json.gz`;
 
-/** Replaces ALL data with the backup's. */
-export async function restoreBackup(ctx: Ctx, b: BackupFile) {
+/**
+ * Replaces ALL data with the backup's — or, for a part backup (or when `only` is given), only the data of
+ * those sections. A part restore runs in one transaction: if the data it brings points at things that are
+ * not on this PC (e.g. sessions for stations that do not exist), nothing is changed and the error says why.
+ */
+export async function restoreBackup(ctx: Ctx, b: BackupFile, only?: SectionKey[]) {
   const current = await migrationCount(ctx.db);
   if (b.migrations > current) throw conflict(`This backup comes from a newer ZENAA (${b.appVersion}). Update this server first, then restore.`);
-  const order = await tablesInOrder(ctx.db);
+  const all = await tablesInOrder(ctx.db);
+  let want: Set<SectionKey> | null = b.sections?.length ? new Set(b.sections) : null;
+  if (only?.length) want = new Set(only.filter((k) => !b.sections || b.sections.includes(k)));
+  if (want && !want.size) throw badRequest('That backup does not hold the parts you chose');
+  if (want && want.size === SECTION_KEYS.length) want = null;
+  const order = want ? all.filter((t) => want!.has(sectionOf(t))) : all;
   const counts: Record<string, number> = {};
-  await ctx.db.transaction(async (tx) => {
-    await tx.execute(sql.raw(`truncate ${order.map(ident).join(', ')} restart identity cascade`));
+  try {
+    await ctx.db.transaction(async (tx) => {
+      if (!want) await tx.execute(sql.raw(`truncate ${order.map(ident).join(', ')} restart identity cascade`));
+      // A part restore merges: rows in the backup are added or brought up to date; nothing else is removed.
+      await fill(tx, b, order, counts, !!want);
+    });
+  } catch (e) {
+    const code = (e as { code?: string; cause?: { code?: string } })?.code ?? (e as { cause?: { code?: string } })?.cause?.code;
+    if (want && code === '23505') throw conflict('Some rows clash with different data already on this PC (for example the same phone number on another customer). Nothing was changed. Restore a full backup to replace everything.');
+    if (want && code === '23503') {
+      const need = [...new Set([...want].flatMap((k) => NEEDS[k]))].filter((k) => !want!.has(k)).map((k) => SECTIONS[k].label);
+      throw conflict(
+        `These parts point at data that is not on this PC${need.length ? ` (it needs: ${need.join('; ')})` : ''}. Restore those parts too (or a full backup). Nothing was changed.`,
+      );
+    }
+    throw e;
+  }
+  applyTimezone((await getSettings(ctx.db)).timezone);
+  for (const e of ['stations.changed', 'payments.changed', 'competitions.changed', 'momo.changed', 'posts.changed'] as const) ctx.bus.emit({ type: e } as never);
+  return counts;
+}
+
+async function fill(tx: DbOrTx, b: BackupFile, order: string[], counts: Record<string, number>, merge: boolean) {
+  {
     for (const t of order) {
       const rows = (b.tables[t] ?? []) as Record<string, unknown>[];
       counts[t] = rows.length;
@@ -127,10 +196,23 @@ export async function restoreBackup(ctx: Ctx, b: BackupFile) {
       const cols = (await q<{ c: string }>(tx, sql`select column_name as c from information_schema.columns where table_schema = 'public' and table_name = ${t}`)).map((r) => r.c);
       const keys = new Set<string>();
       for (const r of rows) for (const k of Object.keys(r)) keys.add(k);
-      const use = cols.filter((c) => keys.has(c)).map(ident).join(', ');
+      const present = cols.filter((c) => keys.has(c));
+      const use = present.map(ident).join(', ');
+      let tail = '';
+      if (merge) {
+        const pk = (
+          await q<{ c: string }>(
+            tx,
+            sql`select a.attname as c from pg_index i join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+                where i.indrelid = ${ident(t)}::regclass and i.indisprimary`,
+          )
+        ).map((x) => x.c);
+        const rest = present.filter((c) => !pk.includes(c));
+        if (pk.length) tail = ` on conflict (${pk.map(ident).join(', ')}) do ${rest.length ? `update set ${rest.map((c) => `${ident(c)} = excluded.${ident(c)}`).join(', ')}` : 'nothing'}`;
+      }
       for (let i = 0; i < rows.length; i += 500) {
         const chunk = JSON.stringify(rows.slice(i, i + 500));
-        await tx.execute(sql`${sql.raw(`insert into ${ident(t)} (${use}) select ${use} from json_populate_recordset(null::${ident(t)}, `)}${chunk}::json)`);
+        await tx.execute(sql`${sql.raw(`insert into ${ident(t)} (${use}) select ${use} from json_populate_recordset(null::${ident(t)}, `)}${chunk}::json)${sql.raw(tail)}`);
       }
     }
     // Serial counters (customer numbers, receipt numbers…) continue after the restored rows.
@@ -141,20 +223,17 @@ export async function restoreBackup(ctx: Ctx, b: BackupFile) {
     for (const s of serials) {
       await tx.execute(sql.raw(`select setval(pg_get_serial_sequence('${ident(s.t)}', '${s.c}'), coalesce((select max(${ident(s.c)}) from ${ident(s.t)}), 0) + 1, false)`));
     }
-  });
-  applyTimezone((await getSettings(ctx.db)).timezone);
-  for (const e of ['stations.changed', 'payments.changed', 'competitions.changed', 'momo.changed', 'posts.changed'] as const) ctx.bus.emit({ type: e } as never);
-  return counts;
+  }
 }
 
 // ───────────── Backup folder ─────────────
 
-export async function writeBackupFile(ctx: Ctx, label = 'auto') {
+export async function writeBackupFile(ctx: Ctx, label = 'auto', sections?: SectionKey[]) {
   const dir = BACKUP_DIR();
   await mkdir(dir, { recursive: true });
   const at = ctx.clock.now();
   const name = backupName(label, at);
-  const buf = gzipBackup(await createBackup(ctx));
+  const buf = gzipBackup(await createBackup(ctx, sections));
   await writeFile(path.join(dir, `.${name}.partial`), buf);
   const { rename } = await import('node:fs/promises');
   await rename(path.join(dir, `.${name}.partial`), path.join(dir, name));

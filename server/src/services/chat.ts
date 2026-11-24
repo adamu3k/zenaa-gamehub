@@ -7,14 +7,15 @@
  * Clients poll "messages after number N" every few seconds — cheap, and works on any phone/network.
  * Staff can read every room, delete messages and mute a player (muted players can still read).
  */
-import { and, desc, eq, gt, inArray, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, ilike, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Actor, Ctx } from '../context.js';
-import { chatMessages, customers, staff } from '../db/schema.js';
+import { chatMessages, customers, sessions, staff } from '../db/schema.js';
 import { AppError, badRequest, forbidden, notFound } from '../lib/errors.js';
 import { avatarUrl, publicName } from '../competitions/common.js';
 import { audit } from './audit.js';
 import { getSettings } from './settings.js';
+import { notifyLater } from './push.js';
 
 export const LOBBY = 'lobby';
 const PAGE = 60;
@@ -122,6 +123,10 @@ export async function customerPost(ctx: Ctx, me: string, raw: unknown) {
   if (!body.trim()) throw badRequest('Type a message');
   const [m] = await ctx.db.insert(chatMessages).values({ room, customerId: me, body, createdAt: ctx.clock.now() }).returning();
   ctx.bus.emit({ type: 'chat.changed', room });
+  if (room !== LOBBY) {
+    const [from] = await ctx.db.select({ fullName: customers.fullName, gamertag: customers.gamertag }).from(customers).where(eq(customers.id, me));
+    notifyLater(ctx, b.to, { title: `💬 ${from ? publicName(from) : 'New message'}`, body: body.slice(0, 140), url: `/portal/chat?to=${me}`, tag: `dm-${me}` });
+  }
   return (await present(ctx, [m], { customerId: me }))[0];
 }
 
@@ -184,16 +189,20 @@ export async function staffRooms(ctx: Ctx) {
     .orderBy(desc(sql`max(${chatMessages.number})`))
     .limit(100);
   const ids = [...new Set(rows.flatMap((r) => (r.room.startsWith('dm:') ? r.room.slice(3).split(':') : [])))];
-  const ppl = ids.length ? await ctx.db.select({ id: customers.id, fullName: customers.fullName, gamertag: customers.gamertag }).from(customers).where(inArray(customers.id, ids)) : [];
+  const ppl = ids.length
+    ? await ctx.db.select({ id: customers.id, fullName: customers.fullName, gamertag: customers.gamertag, avatarAt: customers.avatarAt }).from(customers).where(inArray(customers.id, ids))
+    : [];
   const names = new Map(ppl.map((p) => [p.id, publicName(p)]));
+  const pics = new Map(ppl.map((p) => [p.id, avatarUrl(p.id, p.avatarAt)]));
   const list = rows.map((r) => ({
     room: r.room,
     title: r.room === LOBBY ? 'Lobby (everyone)' : r.room.slice(3).split(':').map((id) => names.get(id) ?? '?').join(' ↔ '),
     lastNumber: r.last,
     count: r.count,
     reported: r.reported,
+    people: r.room.startsWith('dm:') ? r.room.slice(3).split(':').map((id) => ({ id, name: names.get(id) ?? '?', avatarUrl: pics.get(id) ?? null })) : [],
   }));
-  if (!list.some((r) => r.room === LOBBY)) list.unshift({ room: LOBBY, title: 'Lobby (everyone)', lastNumber: 0, count: 0, reported: 0 });
+  if (!list.some((r) => r.room === LOBBY)) list.unshift({ room: LOBBY, title: 'Lobby (everyone)', lastNumber: 0, count: 0, reported: 0, people: [] });
   return list.sort((a, b) => (a.room === LOBBY ? -1 : b.room === LOBBY ? 1 : b.lastNumber - a.lastNumber));
 }
 
@@ -230,4 +239,45 @@ export async function setMuted(ctx: Ctx, actor: Actor, customerId: string, muted
   await audit(ctx.db, actor, muted ? 'chat.mute' : 'chat.unmute', { type: 'customer', id: c.id }, { name: c.name });
   ctx.bus.emit({ type: 'chat.changed', room: LOBBY });
   return { ok: true, muted };
+}
+
+const ONLINE_MS = 5 * 60_000;
+
+/**
+ * Portal: players to message — search by name or gamertag, or browse who is online / playing now.
+ * Only app users are listed; only their public name and picture are shown.
+ */
+export async function customerPeople(ctx: Ctx, me: string, q?: string) {
+  await chatOn(ctx);
+  const term = (q ?? '').trim().slice(0, 40);
+  const rows = await ctx.db
+    .select({ id: customers.id, fullName: customers.fullName, gamertag: customers.gamertag, avatarAt: customers.avatarAt, lastSeenAt: customers.lastSeenAt })
+    .from(customers)
+    .where(
+      and(
+        ne(customers.id, me),
+        isNotNull(customers.passwordHash),
+        isNull(customers.deletedAt),
+        eq(customers.status, 'active'),
+        eq(customers.portalEnabled, true),
+        term ? or(ilike(customers.gamertag, `%${term.replace(/[%_\\]/g, '')}%`), ilike(customers.fullName, `%${term.replace(/[%_\\]/g, '')}%`)) : undefined,
+      ),
+    )
+    .orderBy(sql`${customers.lastSeenAt} desc nulls last`)
+    .limit(term ? 30 : 60);
+  const ids = rows.map((r) => r.id);
+  const playing = ids.length
+    ? new Set((await ctx.db.select({ id: sessions.customerId }).from(sessions).where(and(inArray(sessions.customerId, ids), ne(sessions.status, 'ended')))).map((r) => r.id))
+    : new Set<string | null>();
+  const now = ctx.clock.now().getTime();
+  return rows
+    .map((r) => ({
+      id: r.id,
+      name: publicName(r),
+      avatarUrl: avatarUrl(r.id, r.avatarAt),
+      online: !!r.lastSeenAt && now - r.lastSeenAt.getTime() < ONLINE_MS,
+      playing: playing.has(r.id),
+      lastSeenAt: r.lastSeenAt?.toISOString() ?? null,
+    }))
+    .sort((a, b) => Number(b.playing || b.online) - Number(a.playing || a.online));
 }

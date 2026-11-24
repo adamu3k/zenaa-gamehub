@@ -30,6 +30,10 @@ export function OutsideFeeds() {
   const status = useQuery({ queryKey: ['news-feeds'], queryFn: () => get<any>('/api/news-feeds') });
   const test = useMutation({ mutationFn: (u: string) => post<any>('/api/news-feeds/test', { url: u }) });
   const refresh = useMutation({ mutationFn: () => post<any>('/api/news-feeds/refresh'), onSuccess: (r) => qc.setQueryData(['news-feeds'], r) });
+  const reload = () => qc.invalidateQueries({ queryKey: ['news-feeds'] });
+  const hide = useMutation({ mutationFn: (url: string) => post('/api/news-feeds/hide', { url }), onSuccess: reload });
+  const hideAll = useMutation({ mutationFn: () => post('/api/news-feeds/hide-all'), onSuccess: reload });
+  const unhide = useMutation({ mutationFn: () => post('/api/news-feeds/unhide-all'), onSuccess: reload });
   const save = useMutation({
     mutationFn: (next: { feeds: typeof feeds; count: number }) => put('/api/settings', { ...settings, newsFeeds: next.feeds, newsFeedCount: next.count }),
     onSuccess: async () => {
@@ -153,13 +157,28 @@ export function OutsideFeeds() {
         )}
       </div>
 
-      {items.length > 0 && (
+      {(items.length > 0 || (status.data?.hidden ?? 0) > 0) && (
         <div className="card">
           <div className="card-head">
             <h2>Newest stories (preview)</h2>
             <span className="dim" style={{ fontSize: 12 }}>
               Customers see the newest {count}
             </span>
+            <div className="spacer" />
+            {items.length > 0 && (
+              <button
+                className="btn btn-sm btn-ghost"
+                style={{ color: 'var(--danger)' }}
+                onClick={() => window.confirm('Remove all the stories showing now? New stories still come in later.') && hideAll.mutate()}
+              >
+                <Trash2 size={14} /> Remove all
+              </button>
+            )}
+            {(status.data?.hidden ?? 0) > 0 && (
+              <button className="btn btn-sm btn-ghost" onClick={() => unhide.mutate()} title="Show removed stories again">
+                Show removed ({status.data.hidden})
+              </button>
+            )}
           </div>
           <div className="list">
             {items.map((i, n) => (
@@ -177,6 +196,20 @@ export function OutsideFeeds() {
                   </div>
                 </span>
                 <ExternalLink size={14} />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon btn-sm"
+                  style={{ color: 'var(--danger)' }}
+                  title="Remove this story"
+                  aria-label="Remove this story"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hide.mutate(i.url);
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
               </a>
             ))}
           </div>

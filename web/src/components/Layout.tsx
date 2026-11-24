@@ -4,6 +4,7 @@ import { get } from '../lib/api';
 import { MyPinModal, PinPromptHost } from './pin';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { PageFrame } from '../lib/lazy';
 import { useApp } from '../lib/app-context';
 import { ThemeToggle } from '../lib/theme';
 import { AnnouncerToggle } from '../lib/announcer';
@@ -124,7 +125,9 @@ export function Layout() {
           </span>
         </div>
         <div className="content">
-          <Outlet />
+          <PageFrame resetKey={loc.pathname}>
+            <Outlet />
+          </PageFrame>
         </div>
         <PinPromptHost />
         {pinOpen && <MyPinModal onClose={() => setPinOpen(false)} />}

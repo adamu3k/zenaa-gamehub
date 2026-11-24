@@ -1,6 +1,6 @@
 import { Zap } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { ErrorBox, Field } from '../components/ui';
+import { ErrorBox, Field, PasswordInput } from '../components/ui';
 import { useApp } from '../lib/app-context';
 import { ThemeToggle } from '../lib/theme';
 
@@ -42,7 +42,7 @@ export function LoginPage() {
           <input className="input" autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
         </Field>
         <Field label="Password">
-          <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <PasswordInput className="input" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </Field>
         <button className="btn btn-primary" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { ErrorBox, Field, Modal, PageHeader } from '../components/ui';
+import { ErrorBox, Field, Modal, PageHeader, PasswordInput } from '../components/ui';
 import { api, get, patch, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import { formatDateTime } from '../lib/format';
@@ -184,7 +184,7 @@ function StaffForm({ staff, onClose }: { staff: any; onClose(): void }) {
           </Field>
         ) : (
           <Field label="Password" hint="At least 8 characters">
-            <input className="input" type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+            <PasswordInput className="input" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
           </Field>
         )}
       </div>
@@ -211,11 +211,11 @@ function StaffForm({ staff, onClose }: { staff: any; onClose(): void }) {
           </div>
           <ErrorBox error={pinM.error} />
           <div className="toolbar">
-            <input
+            <PasswordInput
               className="input mono"
               style={{ maxWidth: 200 }}
               inputMode="numeric"
-              type="password"
+             
               placeholder="New PIN (4–8 digits)"
               value={newPin}
               onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))}
@@ -231,7 +231,7 @@ function StaffForm({ staff, onClose }: { staff: any; onClose(): void }) {
           </div>
           <h3>Reset password</h3>
           <div className="toolbar">
-            <input className="input" style={{ maxWidth: 260 }} type="password" placeholder="New password (8+ chars)" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+            <PasswordInput className="input" style={{ maxWidth: 260 }} placeholder="New password (8+ chars)" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
             <button className="btn" disabled={newPw.length < 8 || reset.isPending} onClick={() => reset.mutate()}>
               Reset
             </button>
@@ -246,6 +246,8 @@ function UserTypes() {
   const perms = useQuery({ queryKey: ['permissions'], queryFn: () => get('/api/permissions') });
   const types = useQuery({ queryKey: ['staff-roles'], queryFn: () => get('/api/staff-roles') });
   const [edit, setEdit] = useState<any>(null);
+  const [builtin, setBuiltin] = useState<(typeof BUILTIN)[number] | null>(null);
+  const people = useQuery({ queryKey: ['staff'], queryFn: () => get<any[]>('/api/staff') });
   const labels: Record<string, string> = Object.fromEntries((perms.data?.permissions ?? []).map((p: any) => [p.key, p.label]));
   const all: string[] = (perms.data?.permissions ?? []).map((p: any) => p.key);
   return (
@@ -260,18 +262,29 @@ function UserTypes() {
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
         {BUILTIN.map((b) => {
           const list: string[] = perms.data?.roleDefaults?.[b.value] ?? [];
+          const n = (people.data ?? []).filter((s: any) => !s.roleId && s.role === b.value).length;
           return (
-            <div key={b.value} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              key={b.value}
+              type="button"
+              className="card card-pad"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left', cursor: 'pointer', color: 'var(--text)' }}
+              onClick={() => setBuiltin(b)}
+              title="See and change who has this type"
+            >
               <div className="toolbar">
                 <ShieldCheck size={16} className="dim" />
                 <strong>{b.label}</strong>
                 <span className="badge">Built-in</span>
+                <span className="badge">
+                  {n} {n === 1 ? 'person' : 'people'}
+                </span>
               </div>
               <div className="muted" style={{ fontSize: 13 }}>{b.about}</div>
               <div className="dim" style={{ fontSize: 12 }}>
                 {list.length === all.length ? 'All permissions' : `${list.length} of ${all.length} permissions`}
               </div>
-            </div>
+            </button>
           );
         })}
         {(types.data ?? []).map((t: any) => (
@@ -297,7 +310,79 @@ function UserTypes() {
         ))}
       </div>
       {edit && <UserTypeForm type={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
+      {builtin && (
+        <Modal title={`${builtin.label} — members`} onClose={() => setBuiltin(null)} footer={<button className="btn" onClick={() => setBuiltin(null)}>Done</button>}>
+          <div className="muted" style={{ fontSize: 13 }}>{builtin.about}</div>
+          <Members type={builtin.value} label={builtin.label} />
+        </Modal>
+      )}
     </>
+  );
+}
+
+/**
+ * Who has a user type, with Add and Remove. `type` is a built-in role ('admin' | 'manager' | 'cashier')
+ * or a custom user type id. Removing someone moves them to the built-in Cashier type.
+ */
+function Members({ type, label, custom }: { type: string; label: string; custom?: boolean }) {
+  const { toast, me } = useApp();
+  const qc = useQueryClient();
+  const people = useQuery({ queryKey: ['staff'], queryFn: () => get<any[]>('/api/staff') });
+  const [pick, setPick] = useState('');
+  const isIn = (s: any) => (custom ? s.roleId === type : !s.roleId && s.role === type);
+  const inside = (people.data ?? []).filter(isIn);
+  const outside = (people.data ?? []).filter((s: any) => !isIn(s) && s.active !== false);
+  const done = (msg: string) => {
+    qc.invalidateQueries({ queryKey: ['staff'] });
+    qc.invalidateQueries({ queryKey: ['staff-roles'] });
+    toast('success', msg);
+  };
+  const move = useMutation({
+    mutationFn: (v: { id: string; body: any }) => patch(`/api/staff/${v.id}`, v.body),
+    onError: (e: Error) => toast('error', e.message),
+  });
+  const add = (id: string) => {
+    const s = outside.find((x: any) => x.id === id);
+    move.mutate({ id, body: custom ? { roleId: type } : { role: type, roleId: null } }, { onSuccess: () => (setPick(''), done(`${s?.fullName ?? 'They'} is now ${label}. They need to sign in again.`)) });
+  };
+  const remove = (s: any) => {
+    if (!custom && type === 'cashier') return toast('info', 'Everyone needs a type: open the person and choose a different type instead.');
+    if (!window.confirm(`Take ${s.fullName} out of ${label}? They become a Cashier until you choose another type.`)) return;
+    move.mutate({ id: s.id, body: { role: 'cashier', roleId: null } }, { onSuccess: () => done(`${s.fullName} moved to Cashier`) });
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h3>Members ({inside.length})</h3>
+      {!inside.length && <span className="dim">Nobody has this type yet.</span>}
+      <div className="list">
+        {inside.map((s: any) => (
+          <div key={s.id} className="list-item" style={{ gap: 8 }}>
+            <span style={{ flex: 1 }}>
+              <strong>{s.fullName}</strong> <span className="dim">@{s.username}</span>
+              {s.active === false && <span className="badge" style={{ marginLeft: 6 }}>switched off</span>}
+            </span>
+            <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} disabled={move.isPending || s.id === me?.id} title={s.id === me?.id ? 'You cannot change your own type' : 'Remove'} onClick={() => remove(s)}>
+              <Trash2 size={14} /> Remove
+            </button>
+          </div>
+        ))}
+      </div>
+      {outside.length > 0 && (
+        <div className="toolbar" style={{ gap: 6 }}>
+          <select className="select" style={{ flex: 1 }} value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">Add a member…</option>
+            {outside.map((s: any) => (
+              <option key={s.id} value={s.id} disabled={s.id === me?.id}>
+                {s.fullName} (now {s.roleName})
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-sm btn-primary" disabled={!pick || move.isPending} onClick={() => add(pick)}>
+            <Plus size={14} /> Add
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -370,6 +455,7 @@ function UserTypeForm({ type, onClose }: { type: any; onClose(): void }) {
           <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this person does" />
         </Field>
       </div>
+      {type && <Members type={type.id} label={type.name} custom />}
       <h3>Permissions</h3>
       <div className="check-grid">
         {(perms.data?.permissions ?? []).map((p: any) => (

@@ -1,4 +1,4 @@
-import { asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorOf } from '../auth/plugin.js';
@@ -10,13 +10,13 @@ import { hashPassword } from '../lib/password.js';
 import { pinGate } from '../services/pins.js';
 import { audit } from '../services/audit.js';
 import { normalizePhone } from '../lib/countries.js';
-import { outstandingFor } from '../services/sessions.js';
+import { addCharge, outstandingFor, payTab, removeCharge, tabItems, payOwedFromWallet } from '../services/sessions.js';
 import { getSettings } from '../services/settings.js';
 import { queueCustomerSms } from '../services/sms.js';
 import { formatCustomerCode, walletOperation } from '../services/wallet.js';
 import { avatarUrl } from '../competitions/common.js';
 import { Gamertag } from './portal.js';
-import { addCustomerTime, timeLog } from '../services/time-bank.js';
+import { addCustomerTime, convertTime, timeLog, timeSummary } from '../services/time-bank.js';
 
 const CustomerBody = z.object({
   fullName: z.string().trim().min(1).max(80),
@@ -68,10 +68,10 @@ export async function customerRoutes(app: FastifyInstance, ctx: Ctx) {
       .select({ c: customers, tierName: membershipTiers.name, tierDiscount: membershipTiers.discountPercent })
       .from(customers)
       .leftJoin(membershipTiers, eq(membershipTiers.id, customers.tierId))
-      .where(where)
+      .where(and(isNull(customers.deletedAt), where))
       .orderBy(q.q ? asc(customers.fullName) : desc(customers.createdAt))
       .limit(q.limit);
-    return rows.map((r) => ({ ...withCode(r.c), tierName: r.tierName, tierDiscount: r.tierDiscount ?? 0 }));
+    return Promise.all(rows.map(async (r) => ({ ...withCode(r.c), tierName: r.tierName, tierDiscount: r.tierDiscount ?? 0, outstanding: await outstandingFor(ctx.db, r.c.id) })));
   });
 
   app.post('/api/customers', { preHandler: app.auth('customers.manage') }, async (req) => {
@@ -116,6 +116,8 @@ export async function customerRoutes(app: FastifyInstance, ctx: Ctx) {
       tierName: r.tierName,
       tierDiscount: r.tierDiscount,
       outstanding: await outstandingFor(ctx.db, r.c.id),
+      savedTime: await timeSummary(ctx.db, r.c),
+      tab: await tabItems(ctx.db, r.c.id),
       stats: { sessions: Number(stats.sessions), spent: Number(stats.spent), seconds: Number(stats.seconds) },
       ledger,
       timeLog: await timeLog(ctx.db, r.c.id),
@@ -165,6 +167,18 @@ export async function customerRoutes(app: FastifyInstance, ctx: Ctx) {
     addCustomerTime(ctx, actorOf(req), req.params.id, req.body),
   );
 
+  /** Change saved time from one station type to another at the same value (customers.time). */
+  app.post<{ Params: { id: string } }>('/api/customers/:id/time/convert', { preHandler: app.auth('customers.view') }, async (req) => {
+    const actor = actorOf(req);
+    if (!(req.body as { preview?: boolean } | undefined)?.preview && !actor.permissions.includes('customers.time')) throw forbidden("You do not have permission to change customers' saved time");
+    return convertTime(ctx, actor, req.params.id, req.body);
+  });
+
+  // ── The customer's account (tab): put things on it, take payment for it ──
+  app.post<{ Params: { id: string } }>('/api/customers/:id/charges', { preHandler: app.auth('customers.view') }, async (req) => addCharge(ctx, actorOf(req), req.params.id, req.body));
+  app.delete<{ Params: { id: string } }>('/api/customers/charges/:id', { preHandler: app.auth('customers.view') }, async (req) => removeCharge(ctx, actorOf(req), req.params.id));
+  app.post<{ Params: { id: string } }>('/api/customers/:id/account/pay', { preHandler: app.auth('sessions.operate') }, async (req) => payTab(ctx, actorOf(req), req.params.id, req.body));
+
   app.post<{ Params: { id: string } }>('/api/customers/:id/wallet', { preHandler: app.auth('customers.view') }, async (req) => {
     const body = parse(
       z.object({
@@ -187,7 +201,11 @@ export async function customerRoutes(app: FastifyInstance, ctx: Ctx) {
     const tx = await ctx.db.transaction(async (tx) => {
       const row = await walletOperation(tx, { ...body, customerId: req.params.id, actor, at: ctx.clock.now() });
       await audit(tx, actor, `wallet.${body.operation}`, { type: 'customer', id: req.params.id }, { amount: body.amount, method: body.method, note: body.note });
-      if (body.operation === 'deposit') await queueCustomerSms(tx, req.params.id, 'topup', { amount: body.amount }, ctx.clock.now());
+      if (body.operation === 'deposit') {
+        await queueCustomerSms(tx, req.params.id, 'topup', { amount: body.amount }, ctx.clock.now());
+        const paidOwed = await payOwedFromWallet(tx, req.params.id, actor, ctx.clock.now());
+        if (paidOwed) return { ...row, paidOwed };
+      }
       return row;
     });
     ctx.bus.emit({ type: 'customers.changed', customerId: req.params.id });

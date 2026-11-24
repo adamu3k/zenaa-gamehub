@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cable, Cloud, Download, Gamepad2, Monitor, Plug, Radar, Search, Tv, Wrench , Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ErrorBox, Field, PageHeader } from '../components/ui';
+import { ErrorBox, Field, PageHeader, PasswordInput } from '../components/ui';
 import { del, get, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import { DEVICES, DRIVER_LABEL } from '../lib/devices';
@@ -254,7 +254,7 @@ function Ewelink() {
               <input className="input mono" value={f.appId} onChange={set('appId')} />
             </Field>
             <Field label="App Secret">
-              <input className="input mono" type="password" autoComplete="off" value={f.appSecret} onChange={set('appSecret')} />
+              <PasswordInput className="input mono" autoComplete="off" value={f.appSecret} onChange={set('appSecret')} />
             </Field>
           </div>
           <div>
@@ -272,7 +272,7 @@ function Ewelink() {
                   <input className="input" value={f.login} onChange={set('login')} />
                 </Field>
                 <Field label="eWeLink password">
-                  <input className="input" type="password" autoComplete="off" value={f.password} onChange={set('password')} />
+                  <PasswordInput className="input" autoComplete="off" value={f.password} onChange={set('password')} />
                 </Field>
                 <Field label="Country code">
                   <input className="input" value={f.countryCode} onChange={set('countryCode')} />

@@ -16,6 +16,7 @@ import { contentRoutes } from './routes/content.js';
 import { communityRoutes } from './routes/community.js';
 import { financeRoutes } from './routes/finance.js';
 import { systemRoutes } from './routes/system.js';
+import { cleanupRoutes } from './routes/cleanup.js';
 import { docsRoutes } from './routes/docs.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { portalRoutes } from './routes/portal.js';
@@ -90,10 +91,23 @@ export async function buildApp(ctx: Ctx, opts: BuildOptions): Promise<FastifyIns
   await systemRoutes(app, ctx);
   await socialRoutes(app, ctx);
   await docsRoutes(app);
+  await cleanupRoutes(app, ctx);
 
   if (opts.webDist && existsSync(path.join(opts.webDist, 'index.html'))) {
     const fastifyStatic = (await import('@fastify/static')).default;
-    await app.register(fastifyStatic, { root: path.resolve(opts.webDist), wildcard: false });
+    await app.register(fastifyStatic, {
+      root: path.resolve(opts.webDist),
+      wildcard: false,
+      // Sends the .br / .gz copies made at build time (much faster on phones and slow Wi-Fi).
+      preCompressed: true,
+      // We set cache-control ourselves below.
+      cacheControl: false,
+      setHeaders: (res, file) => {
+        // Hashed build files never change: keep them for a year. The page itself and the service worker: always check.
+        if (/[\\/]assets[\\/]/.test(file)) res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+        else if (/(index\.html|sw\.js|\.webmanifest)$/.test(file)) res.setHeader('cache-control', 'no-cache');
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/') || req.url.startsWith('/socket.io')) {
         return reply.status(404).send({ error: 'not_found', message: 'Not found' });

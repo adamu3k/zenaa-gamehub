@@ -39,3 +39,30 @@
 @media (display-mode: standalone) {
   .portal-top { padding-top: calc(10px + env(safe-area-inset-top)); }
 }
+
+/* v0.9.6 — play from the app */
+.play-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.play-card > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.play-card.running { border-color: color-mix(in srgb, var(--success) 60%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--success) 14%, transparent), transparent 70%); }
+.play-card.paused { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); }
+.play-card.low .play-clock { color: var(--danger); }
+.play-card.idle { border-style: dashed; }
+.play-clock { font-size: 34px; font-weight: 800; line-height: 1.1; letter-spacing: -0.5px; }
+.pc-people { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 4px; }
+.pc-search { position: relative; display: flex; align-items: center; }
+.pc-search svg { position: absolute; left: 10px; opacity: 0.55; pointer-events: none; }
+.pc-search .input { padding-left: 32px; }
+.pc-people-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.pc-person { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 62px; max-width: 70px; background: none; border: 0; color: inherit; cursor: pointer; padding: 2px; }
+.pc-person-pic { position: relative; }
+.pc-person-name { font-size: 11px; max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-online { position: absolute; right: 1px; bottom: 1px; width: 11px; height: 11px; border-radius: 50%; background: var(--success); border: 2px solid var(--surface, #fff); }
+.pc-online.playing { background: var(--primary); }
+
+/* v0.9.8 — owed money shown as a minus balance */
+.neg-balance { color: var(--danger, #e5484d) !important; }
+.big.neg-balance.on-hero { color: #fff !important; background: #e5484d; border-radius: 10px; padding: 0 10px; align-self: flex-start; }
+.owed-line { font-size: 13px; opacity: 0.95; }
+.owed-line b { color: #ffd2d2; }
+.owed-card { border-color: color-mix(in srgb, var(--danger, #e5484d) 55%, var(--border)); }
+.owed-card .owed-line b { color: inherit; }

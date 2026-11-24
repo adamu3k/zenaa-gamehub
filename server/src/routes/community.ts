@@ -20,6 +20,7 @@ import {
   staffMessages,
   staffPost,
   staffRooms,
+  customerPeople,
 } from '../services/chat.js';
 import { feedStatus, refreshNow, testFeed } from '../services/newsfeed.js';
 import { claimFollow, createOffer, customerRewards, decideClaim, deleteOffer, listClaims, listOffers, pendingClaims, redeemCode, updateOffer } from '../services/rewards.js';
@@ -37,6 +38,11 @@ export async function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     return customerMessages(ctx, me(req), q.to, q.after);
   });
   app.post('/api/portal/chat/messages', player, async (req) => customerPost(ctx, me(req), req.body));
+  /** Players to message: search, or browse who is online / playing now. */
+  app.get('/api/portal/chat/people', player, async (req) => {
+    const q = parse(z.object({ q: z.string().trim().max(40).optional() }), req.query);
+    return customerPeople(ctx, me(req), q.q);
+  });
   app.post<{ Params: { id: string } }>('/api/portal/chat/messages/:id/report', player, async (req) => reportMessage(ctx, me(req), req.params.id));
 
   // ── Chat (staff) ──

@@ -27,6 +27,8 @@ export const SettingsSchema = z.object({
   warningMinutes: z.array(z.number().int().min(1).max(120)).max(5),
   /** When true, staff must open a shift (cash drawer) before taking or paying out money. */
   requireOpenShift: z.boolean().default(false),
+  /** Credit limit for customers who have none of their own (0 = only customers with their own limit may pay later). */
+  defaultCreditLimit: z.number().int().min(0).default(0),
   /** Printed under the centre name on receipts (address, phone…). */
   receiptHeader: z.string().max(300).default(''),
   receiptFooter: z.string().max(300).default('Thank you for playing!'),
@@ -43,6 +45,10 @@ export const SettingsSchema = z.object({
   bookingMaxDaysAhead: z.number().int().min(1).max(90).default(14),
   /** A confirmed booking not checked in this many minutes after its start becomes a no-show. */
   bookingGraceMinutes: z.number().int().min(5).max(240).default(15),
+  /** Customers can start, pause and stop their own session from the app (their booking, or saved time on a free station). */
+  portalSelfStart: z.boolean().default(true),
+  /** Money put into a wallet (cash, MoMo, Paystack) first pays what the customer owes. */
+  autoPayOwed: z.boolean().default(true),
   /** Opening hours "HH:MM". Closing at or before opening means past midnight; equal = open 24 h. */
   openingTime: TimeSchema.default('10:00'),
   closingTime: TimeSchema.default('23:00'),
@@ -230,6 +236,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   requireMomoReference: false,
   warningMinutes: [5, 1],
   requireOpenShift: false,
+  defaultCreditLimit: 0,
   receiptHeader: '',
   receiptFooter: 'Thank you for playing!',
   portalEnabled: true,
@@ -239,6 +246,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bookingMinNoticeMinutes: 30,
   bookingMaxDaysAhead: 14,
   bookingGraceMinutes: 15,
+  portalSelfStart: true,
+  autoPayOwed: true,
   openingTime: '10:00',
   closingTime: '23:00',
   powerOffDelaySeconds: 10,

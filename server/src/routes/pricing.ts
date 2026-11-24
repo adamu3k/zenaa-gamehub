@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorOf } from '../auth/plugin.js';
@@ -30,7 +30,7 @@ const TierBody = z.object({
 
 export async function pricingRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/api/pricing-plans', { preHandler: app.auth('stations.view') }, async () =>
-    ctx.db.select().from(pricingPlans).orderBy(asc(pricingPlans.sortOrder), asc(pricingPlans.name)),
+    ctx.db.select().from(pricingPlans).where(isNull(pricingPlans.deletedAt)).orderBy(asc(pricingPlans.sortOrder), asc(pricingPlans.name)),
   );
 
   app.post('/api/pricing-plans', { preHandler: app.auth('pricing.manage') }, async (req) => {

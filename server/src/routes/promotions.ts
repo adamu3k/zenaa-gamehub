@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorOf } from '../auth/plugin.js';
@@ -13,7 +13,7 @@ export async function promotionRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ───── Happy hours ─────
   app.get('/api/happy-hours', { preHandler: app.auth('stations.view') }, async () =>
-    ctx.db.select().from(happyHours).orderBy(desc(happyHours.active), asc(happyHours.startMinute)),
+    ctx.db.select().from(happyHours).where(isNull(happyHours.deletedAt)).orderBy(desc(happyHours.active), asc(happyHours.startMinute)),
   );
 
   /** The happy hour that would apply if a session started on this station right now. */
@@ -40,7 +40,7 @@ export async function promotionRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   // ───── Promo codes ─────
-  app.get('/api/promo-codes', manage, async () => ctx.db.select().from(promoCodes).orderBy(desc(promoCodes.active), desc(promoCodes.createdAt)));
+  app.get('/api/promo-codes', manage, async () => ctx.db.select().from(promoCodes).where(isNull(promoCodes.deletedAt)).orderBy(desc(promoCodes.active), desc(promoCodes.createdAt)));
 
   /** Checkout preview: is the code valid for this subtotal, and how much does it take off? */
   app.get('/api/promo-codes/check', { preHandler: app.auth('sessions.operate') }, async (req) => {

@@ -118,6 +118,10 @@ export async function registerAuth(app: FastifyInstance, db: DB, secret: string)
       throw unauthorized('Your session has expired — sign in again');
     }
     req.customer = { id: c.id, fullName: c.fullName };
+    // "Online now" in chat: remember when they last used the app (at most once a minute).
+    if (!c.lastSeenAt || Date.now() - c.lastSeenAt.getTime() > 60_000) {
+      void db.update(customers).set({ lastSeenAt: new Date() }).where(eq(customers.id, c.id)).catch(() => undefined);
+    }
   });
 }
 

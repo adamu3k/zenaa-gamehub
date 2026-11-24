@@ -12,11 +12,13 @@ import { normalizePhone } from '../lib/countries.js';
 import { AppError, badRequest, conflict, forbidden, notFound, parse, unauthorized } from '../lib/errors.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { audit } from '../services/audit.js';
-import { availability, changeBooking, createBooking, listBookings } from '../services/bookings.js';
+import { availability, changeBooking, createBooking, defaultPlanFor, listBookings, payBooking } from '../services/bookings.js';
+import { mySession, selfPause, selfReduce, selfResume, selfStart, selfStop } from '../services/self-play.js';
+import { pushPublicKey, subscribe, unsubscribe, notifyCustomer } from '../services/push.js';
 import { getPaystackConfig, startTopup, TopupSchema, verifyOnlinePayment } from '../services/paystack.js';
-import { outstandingFor } from '../services/sessions.js';
+import { outstandingFor, payOwedFromWallet } from '../services/sessions.js';
 import { getSettings } from '../services/settings.js';
-import { timeLog } from '../services/time-bank.js';
+import { convertTime, playableSeconds, priceTime, timeLog, timeSummary } from '../services/time-bank.js';
 import { formatCustomerCode } from '../services/wallet.js';
 
 const Password = z.string().min(8, 'Password must be at least 8 characters').max(200);
@@ -99,6 +101,8 @@ export async function portalRoutes(app: FastifyInstance, ctx: Ctx) {
       socialLinks: s.socialLinks,
       chatEnabled: s.chatEnabled,
       rewardsEnabled: s.rewardsEnabled,
+      selfStart: s.portalSelfStart,
+      autoPayOwed: s.autoPayOwed,
     };
   });
 
@@ -205,6 +209,8 @@ export async function portalRoutes(app: FastifyInstance, ctx: Ctx) {
       balance: c.balance,
       points: c.points,
       savedSeconds: c.savedSeconds,
+      savedTime: await timeSummary(ctx.db, c),
+      activeSession: await mySession(ctx, id),
       timeLog: (await timeLog(ctx.db, id, 20)).map((t) => ({ id: t.id, kind: t.kind, seconds: t.seconds, balanceAfter: t.balanceAfter, planName: t.planName, createdAt: t.createdAt })),
       tierName: r.tierName,
       tierDiscount: r.tierDiscount ?? 0,
@@ -311,6 +317,7 @@ export async function portalRoutes(app: FastifyInstance, ctx: Ctx) {
       code: s.code,
       name: s.name,
       platform: s.platform,
+      categoryId: s.categoryId,
       categoryName,
       state: s.status !== 'active' ? 'unavailable' : busy.has(s.id) ? 'in_use' : 'available',
     }));
@@ -349,6 +356,77 @@ export async function portalRoutes(app: FastifyInstance, ctx: Ctx) {
     // Customers cannot book for someone else.
     const { customerId: _c, contactName: _n, contactPhone: _p, ...rest } = body;
     return createBooking(ctx, { source: 'portal', customerId: req.customer!.id }, rest);
+  });
+
+  /**
+   * Price of a booking and how much saved time the customer has for that station (before booking).
+   * `planId` = a chosen price or game package; `options` = every price / package for this station with its cost
+   * for this booking (a package covers the booking with whole packages; extra time goes on saved time).
+   */
+  app.get('/api/portal/booking-quote', auth, async (req) => {
+    const q = parse(z.object({ stationId: z.string().uuid(), minutes: z.coerce.number().int().min(15).max(720), planId: z.string().uuid().optional() }), req.query);
+    const [station] = await ctx.db.select().from(stations).where(eq(stations.id, q.stationId));
+    if (!station) throw notFound('Station');
+    const [c] = await ctx.db.select().from(customers).where(eq(customers.id, req.customer!.id));
+    const all = (await ctx.db.select().from(pricingPlans).where(eq(pricingPlans.active, true)))
+      .filter((p) => !p.deletedAt && (!p.categoryId || p.categoryId === station.categoryId))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    const options = [];
+    for (const p of all) {
+      try {
+        const pr = await priceTime(ctx.db, p, c, q.minutes);
+        options.push({ id: p.id, name: p.name, kind: p.kind, packageMinutes: p.packageMinutes, price: pr.net, minutes: pr.minutes, ratePerHour: p.kind === 'time_rate' ? p.ratePerHour : null });
+      } catch {
+        // a price that can't sell this length (e.g. minimum time) is left out
+      }
+    }
+    const chosen = (q.planId && options.find((o) => o.id === q.planId)) || null;
+    const def = chosen ? null : await defaultPlanFor(ctx.db, station);
+    const pick = chosen ?? options.find((o) => o.id === def?.id) ?? null;
+    return {
+      planId: pick?.id ?? null,
+      planName: pick?.name ?? null,
+      price: pick?.price ?? null,
+      minutes: pick?.minutes ?? q.minutes,
+      balance: c.balance,
+      savedSeconds: playableSeconds(c, station.categoryId),
+      options,
+    };
+  });
+
+  /** Pays what the customer owes from their wallet (as far as it goes). */
+  app.post('/api/portal/account/pay-from-wallet', auth, async (req) => {
+    const id = req.customer!.id;
+    const paid = await ctx.db.transaction((tx) => payOwedFromWallet(tx, id, { staffId: null, ip: `app:${id}` }, ctx.clock.now(), { force: true }));
+    if (!paid) throw conflict('Nothing to pay — or your wallet is empty');
+    ctx.bus.emit({ type: 'customers.changed', customerId: id });
+    ctx.bus.emit({ type: 'payments.changed' });
+    return { paid, outstanding: await outstandingFor(ctx.db, id) };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/portal/bookings/:id/pay', auth, async (req) => payBooking(ctx, req.customer!.id, req.params.id, req.body));
+
+  // ── Play from the app: start (booking or saved time), pause, continue, stop ──
+  app.post('/api/portal/play/start', auth, async (req) => selfStart(ctx, req.customer!.id, req.body));
+  app.post<{ Params: { id: string } }>('/api/portal/play/:id/pause', auth, async (req) => selfPause(ctx, req.customer!.id, req.params.id));
+  app.post<{ Params: { id: string } }>('/api/portal/play/:id/resume', auth, async (req) => selfResume(ctx, req.customer!.id, req.params.id));
+  app.post<{ Params: { id: string } }>('/api/portal/play/:id/stop', auth, async (req) => selfStop(ctx, req.customer!.id, req.params.id));
+  app.post<{ Params: { id: string } }>('/api/portal/play/:id/reduce', auth, async (req) => selfReduce(ctx, req.customer!.id, req.params.id, req.body));
+
+  /** Change saved time between station types (same money value). */
+  app.post('/api/portal/time/convert', auth, async (req) => convertTime(ctx, { staffId: null, ip: `app:${req.customer!.id}` }, req.customer!.id, req.body));
+
+  // ── Phone notifications ──
+  app.get('/api/portal/push/key', auth, async () => ({ publicKey: await pushPublicKey(ctx) }));
+  app.post('/api/portal/push/subscribe', auth, async (req) => subscribe(ctx, req.customer!.id, req.body, req.headers['user-agent']));
+  app.post('/api/portal/push/unsubscribe', auth, async (req) => {
+    const b = parse(z.object({ endpoint: z.string().max(1000) }), req.body);
+    return unsubscribe(ctx, req.customer!.id, b.endpoint);
+  });
+  app.post('/api/portal/push/test', auth, async (req) => {
+    const sent = await notifyCustomer(ctx, req.customer!.id, { title: '🔔 Notifications are on', body: 'You will get a message here for chats, match challenges, bookings and your time.', url: '/portal', tag: 'test' });
+    if (!sent) throw conflict('Could not reach your phone — check the internet, or turn notifications off and on again');
+    return { sent };
   });
 
   app.post<{ Params: { id: string } }>('/api/portal/bookings/:id/cancel', auth, async (req) =>

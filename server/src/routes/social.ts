@@ -5,6 +5,7 @@ import { actorOf } from '../auth/plugin.js';
 import type { Ctx } from '../context.js';
 import { socialPosts } from '../db/schema.js';
 import { parse } from '../lib/errors.js';
+import { aiConfigPublic, aiEditGraphic, aiTest, saveAiConfig } from '../services/ai.js';
 import { audit } from '../services/audit.js';
 import { outsideNews, refreshNow } from '../services/newsfeed.js';
 import {
@@ -59,6 +60,16 @@ export async function socialRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   /** "Get ideas now": reads the news feeds and makes ideas from stories not used yet. */
+  // ── AI assistant (Claude or OpenAI) ──
+  app.get('/api/social/ai', auth, async () => aiConfigPublic(ctx));
+  app.put('/api/social/ai', { preHandler: app.auth('settings.manage') }, async (req) => {
+    const r = await saveAiConfig(ctx, req.body);
+    await audit(ctx.db, actorOf(req), 'social.ai_config', undefined, { provider: r.provider, model: r.model, connected: r.connected });
+    return r;
+  });
+  app.post('/api/social/ai/test', { preHandler: app.auth('settings.manage') }, async () => aiTest(ctx));
+  app.post('/api/social/ai/edit', auth, async (req) => aiEditGraphic(ctx, req.body));
+
   app.post('/api/social/ideas', auth, async () => {
     const fresh = await refreshNow(ctx).catch(() => null);
     const items = (await outsideNews(ctx)).length ? await outsideNews(ctx) : ((fresh?.items as any[]) ?? []);

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, MapPin, Plus, Swords } from 'lucide-react';
 import { useState } from 'react';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, Segmented } from '../components/ui';
 import { Avatar, ScoreLine, TierBadge } from '../competitions/ui';
 import { get, post, put } from '../lib/api';
@@ -93,6 +94,7 @@ export function FindMatchPage() {
           </button>
         </>
       )}
+      {manage && <DeleteButton icon url={`/api/matchmaking/requests/${r.id}`} what={`request #${r.number ?? ''}`.trim()} refresh={[['competitions']]} />}
     </div>
   );
   return (

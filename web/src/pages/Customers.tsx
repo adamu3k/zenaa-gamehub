@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, CreditCard, KeyRound, Plus, Search, Wallet } from 'lucide-react';
+import { Clock, CreditCard, KeyRound, Plus, Repeat, Search, Trash2, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MomoFields, SettleModal, useTender } from '../components/money';
+import { DeleteButton } from '../components/DeleteButton';
 import { ErrorBox, Field, Modal, PageHeader, StatusBadge } from '../components/ui';
-import { get, patch, post } from '../lib/api';
+import { del, get, patch, post } from '../lib/api';
 import { useApp } from '../lib/app-context';
 import { formatDateTime, formatDuration, formatMinutes, METHOD_LABEL, parseMoney, toMajorString } from '../lib/format';
 
@@ -65,7 +66,10 @@ export function CustomersPage() {
                     <StatusBadge status={c.status} />
                   </td>
                   <td className="right num">{c.points}</td>
-                  <td className="right num">{money(c.balance)}</td>
+                  <td className="right num">
+                    {money(c.balance)}
+                    {c.outstanding > 0 && <div style={{ color: 'var(--danger)', fontSize: 12, fontWeight: 600 }}>owes −{money(c.outstanding)}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -156,15 +160,23 @@ function CustomerForm({ customer, onClose, onSaved }: { customer?: any; onClose(
 }
 
 function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
-  const { money, can, toast } = useApp();
+  const { money, can, toast, settings } = useApp();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['customer', id], queryFn: () => get(`/api/customers/${id}`) });
+  const removeCharge = useMutation({
+    mutationFn: (cid: string) => del(`/api/customers/charges/${cid}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customer', id] }),
+    onError: (e: Error) => toast('error', e.message),
+  });
   const [walletOp, setWalletOp] = useState<null | 'deposit' | 'withdrawal' | 'adjustment'>(null);
   const [timeOp, setTimeOp] = useState<null | 'buy' | 'adjust'>(null);
   const [editing, setEditing] = useState(false);
   const [creditOpen, setCreditOpen] = useState(false);
   const [settling, setSettling] = useState<any>(null);
   const [paystackOpen, setPaystackOpen] = useState(false);
+  const [chargeOpen, setChargeOpen] = useState(false);
+  const [payAccount, setPayAccount] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [portalCode, setPortalCode] = useState<any>(null);
   const paystack = useQuery({ queryKey: ['paystack-status'], queryFn: () => get('/api/paystack/status'), staleTime: 60_000 });
   const issueCode = useMutation({
@@ -196,16 +208,33 @@ function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
         <>
           <div className="grid stats">
             <div className="card stat">
-              <span className="stat-label">Wallet</span>
-              <span className="stat-value">{money(c.balance)}</span>
+              <span className="stat-label">{c.outstanding > 0 ? 'Main balance' : 'Wallet'}</span>
+              <span className="stat-value" style={{ color: c.balance - (c.outstanding ?? 0) < 0 ? 'var(--danger)' : undefined }}>
+                {c.balance - (c.outstanding ?? 0) < 0 ? `−${money(c.outstanding - c.balance)}` : money(c.balance - (c.outstanding ?? 0))}
+              </span>
+              {c.outstanding > 0 && (
+                <span className="stat-sub">
+                  Wallet {money(c.balance)} · <b style={{ color: 'var(--danger)' }}>owes {money(c.outstanding)}</b>
+                </span>
+              )}
             </div>
             <div className="card stat">
               <span className="stat-label">Saved time</span>
               <span className="stat-value" style={{ color: c.savedSeconds >= 60 ? 'var(--success)' : undefined }}>
                 {formatMinutes(Math.floor(c.savedSeconds / 60))}
               </span>
+              {(c.savedTime ?? []).length > 0 && (
+                <span className="stat-sub">
+                  {(c.savedTime as any[]).map((t) => `${t.name} ${formatMinutes(Math.floor(t.seconds / 60))}`).join(' · ')}
+                </span>
+              )}
               <span className="stat-sub">
                 {c.savedSeconds >= 60 ? 'Continue it from Start session' : 'Nothing saved'}
+                {can('customers.time') && (c.savedTime ?? []).some((t: any) => t.categoryId) && (
+                  <button className="btn btn-ghost btn-sm" style={{ padding: '0 6px', marginLeft: 4 }} onClick={() => setConvertOpen(true)} title="Change saved time to another station type">
+                    <Repeat size={12} /> Type
+                  </button>
+                )}
                 {can('customers.time') && (
                   <>
                     <button className="btn btn-ghost btn-sm" style={{ padding: '0 6px', marginLeft: 4 }} onClick={() => setTimeOp('buy')}>
@@ -224,12 +253,12 @@ function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
               <span className="stat-sub">{c.tierName ? `${c.tierName} · ${c.tierDiscount}% off` : 'No tier'}</span>
             </div>
             <div className="card stat">
-              <span className="stat-label">Owes (tab)</span>
+              <span className="stat-label">Owes (on account)</span>
               <span className="stat-value" style={{ color: c.outstanding > 0 ? 'var(--warning)' : undefined }}>
                 {money(c.outstanding)}
               </span>
               <span className="stat-sub">
-                Credit limit {c.creditLimit > 0 ? money(c.creditLimit) : 'none'}
+                Limit {c.creditLimit > 0 ? money(c.creditLimit) : settings.defaultCreditLimit ? `${money(settings.defaultCreditLimit)} (default)` : 'none'}
                 {can('payments.tab') && (
                   <button className="btn btn-ghost btn-sm" style={{ padding: '0 6px', marginLeft: 4 }} onClick={() => setCreditOpen(true)}>
                     Change
@@ -277,6 +306,13 @@ function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
                 <button className="btn btn-sm" onClick={() => status.mutate(c.status === 'active' ? 'suspended' : 'active')}>
                   {c.status === 'active' ? 'Suspend' : 'Reactivate'}
                 </button>
+                <DeleteButton
+                  url={`/api/customers/${id}`}
+                  what={c.fullName}
+                  confirmText={`Delete ${c.fullName} (${c.code})?\n\nTheir name, phone and app account are removed. Past payments and match results stay in the reports as "Deleted customer". Customers with wallet money, saved time or an unpaid tab cannot be deleted.`}
+                  refresh={[['customers']]}
+                  onDone={onClose}
+                />
               </>
             )}
           </div>
@@ -306,6 +342,57 @@ function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
                   </button>
                 )}
               </>
+            )}
+          </div>
+          <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="toolbar">
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>Account — pay later</div>
+                <div className="dim" style={{ fontSize: 12 }}>
+                  Games played and not paid, drinks, or time added for a friend. They pay it later with cash, MoMo or their wallet.
+                </div>
+              </div>
+              {can('payments.tab') && (
+                <button className="btn btn-sm" onClick={() => setChargeOpen(true)}>
+                  <Plus size={14} /> Put on account
+                </button>
+              )}
+              {c.outstanding > 0 && can('sessions.operate') && (
+                <button className="btn btn-sm btn-primary" onClick={() => setPayAccount(true)}>
+                  Take payment · {money(c.outstanding)}
+                </button>
+              )}
+            </div>
+            {(c.tab ?? []).length === 0 ? (
+              <span className="dim" style={{ fontSize: 13 }}>
+                Nothing owed.
+              </span>
+            ) : (
+              <div className="list">
+                {(c.tab as any[]).map((t) => (
+                  <div key={t.kind + t.id} className="list-item">
+                    <span>
+                      {t.label}
+                      <div className="dim" style={{ fontSize: 12 }}>
+                        {formatDateTime(t.at)}
+                        {t.owed < t.amount ? ` · ${money(t.amount - t.owed)} of ${money(t.amount)} paid` : ''}
+                      </div>
+                    </span>
+                    <span className="toolbar" style={{ flexWrap: 'nowrap' }}>
+                      <strong className="num" style={{ color: 'var(--warning)' }}>{money(t.owed)}</strong>
+                      {t.kind === 'charge' && t.owed === t.amount && can('payments.tab') && !t.label.includes(' added on ') && (
+                        <button
+                          className="btn btn-ghost btn-icon btn-sm"
+                          title="Remove (put on by mistake)"
+                          onClick={() => window.confirm(`Remove "${t.label}" (${money(t.amount)}) from ${c.fullName}'s account?`) && removeCharge.mutate(t.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
           {(c.timeLog?.length ?? 0) > 0 && (
@@ -458,6 +545,9 @@ function CustomerDetail({ id, onClose }: { id: string; onClose(): void }) {
         </Modal>
       )}
       {editing && c && <CustomerForm customer={c} onClose={() => setEditing(false)} />}
+      {chargeOpen && c && <ChargeModal customer={c} onClose={() => setChargeOpen(false)} />}
+      {payAccount && c && <PayAccountModal customer={c} onClose={() => setPayAccount(false)} />}
+      {convertOpen && c && <ConvertTimeModal customer={c} onClose={() => setConvertOpen(false)} />}
       {creditOpen && c && <CreditLimitModal customer={c} onClose={() => setCreditOpen(false)} />}
       {settling && c && <SettleModal session={settling} customer={{ id: c.id, balance: c.balance }} onClose={() => setSettling(null)} />}
     </Modal>
@@ -777,6 +867,181 @@ function TimeModal({ customer, op, onClose }: { customer: any; op: 'buy' | 'adju
             <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Gift, correction, PS5 broke mid-game" />
           </Field>
         </>
+      )}
+    </Modal>
+  );
+}
+
+/** Puts something on the customer's account to pay later (play not paid for, drinks…). */
+function ChargeModal({ customer, onClose }: { customer: any; onClose(): void }) {
+  const { money, settings, toast } = useApp();
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const parsed = parseMoney(amount, settings.currencyMinorUnits);
+  const limit = customer.creditLimit > 0 ? customer.creditLimit : (settings.defaultCreditLimit ?? 0);
+  const m = useMutation({
+    mutationFn: () => post(`/api/customers/${customer.id}/charges`, { amount: parsed, note: note.trim() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customer', customer.id] });
+      toast('success', `${money(parsed)} put on ${customer.fullName}'s account`);
+      onClose();
+    },
+  });
+  return (
+    <Modal
+      title={`Put on ${customer.fullName}'s account`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={!parsed || parsed <= 0 || note.trim().length < 2 || m.isPending} onClick={() => m.mutate()}>
+            Put {parsed ? money(parsed) : ''} on account
+          </button>
+        </>
+      }
+    >
+      <ErrorBox error={m.error} />
+      <div className="form-grid">
+        <Field label={`Amount (${settings.currencyCode})`}>
+          <MoneyField value={amount} onChange={setAmount} />
+        </Field>
+        <Field label="What for">
+          <input className="input" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. PS5 1 hour, not paid · 2 drinks" />
+        </Field>
+      </div>
+      <div className="hint">
+        Owes {money(customer.outstanding)} now{limit > 0 ? ` · limit ${money(limit)}` : ' · no credit limit set (set one with "Change" above, or a default in Settings)'}.
+      </div>
+    </Modal>
+  );
+}
+
+function MoneyField({ value, onChange }: { value: string; onChange(v: string): void }) {
+  return <input className="input" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder="0.00" />;
+}
+
+/** Takes payment for everything (or part of what) the customer owes, oldest first. */
+function PayAccountModal({ customer, onClose }: { customer: any; onClose(): void }) {
+  const { money, toast } = useApp();
+  const qc = useQueryClient();
+  const tender = useTender(customer.outstanding, { customer: { id: customer.id, balance: customer.balance }, allowPartial: true });
+  const m = useMutation({
+    mutationFn: () => post(`/api/customers/${customer.id}/account/pay`, tender.payload),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['customer', customer.id] });
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      toast('success', `Received ${money(r.paid)}${r.remaining > 0 ? ` · ${money(r.remaining)} still owed` : ' · all paid'}`);
+      onClose();
+    },
+  });
+  return (
+    <Modal
+      title={`Payment from ${customer.fullName}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={!tender.valid || tender.total <= 0 || m.isPending} onClick={() => m.mutate()}>
+            Receive {money(tender.total)}
+          </button>
+        </>
+      }
+    >
+      <ErrorBox error={m.error} />
+      <div className="total-row">
+        <span>Owed</span>
+        <span>{money(customer.outstanding)}</span>
+      </div>
+      <div className="hint">Part payment is fine — the oldest items are paid first.</div>
+      {tender.ui}
+    </Modal>
+  );
+}
+
+/** Staff: change saved time to another station type at the same value. */
+function ConvertTimeModal({ customer, onClose }: { customer: any; onClose(): void }) {
+  const { toast } = useApp();
+  const qc = useQueryClient();
+  const cats = useQuery({ queryKey: ['station-categories'], queryFn: () => get('/api/station-categories') });
+  const from = (customer.savedTime ?? []) as any[];
+  const [fromId, setFromId] = useState<string>(from.find((f) => f.categoryId)?.categoryId ?? '');
+  const [toId, setToId] = useState('');
+  const have = Math.floor((from.find((f) => (f.categoryId ?? '') === fromId)?.seconds ?? 0) / 60);
+  const [minutes, setMinutes] = useState('');
+  useEffect(() => setMinutes(String(have)), [fromId, have]);
+  const n = Math.min(Number(minutes) || 0, have);
+  const body = { fromCategoryId: fromId || null, toCategoryId: toId, minutes: n };
+  const preview = useQuery({
+    queryKey: ['convert-preview', customer.id, fromId, toId, n],
+    queryFn: () => post(`/api/customers/${customer.id}/time/convert`, { ...body, preview: true }),
+    enabled: !!toId && n > 0,
+    retry: false,
+  });
+  const m = useMutation({
+    mutationFn: () => post(`/api/customers/${customer.id}/time/convert`, body),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['customer', customer.id] });
+      toast('success', `${formatMinutes(r.fromMinutes)} ${r.from} → ${formatMinutes(r.toMinutes)} ${r.to}`);
+      onClose();
+    },
+  });
+  return (
+    <Modal
+      title="Change saved time to another station type"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={!preview.data || m.isPending} onClick={() => m.mutate()}>
+            Change it
+          </button>
+        </>
+      }
+    >
+      <ErrorBox error={m.error || preview.error} />
+      <div className="hint">Changed at the same money value, using each type's cheapest hourly price (Pricing). Example: 5 h of PC at GH₵10/h = GH₵50 = 2 h 30 min of PS5 at GH₵20/h.</div>
+      <div className="form-grid">
+        <Field label="From">
+          <select className="select" value={fromId} onChange={(e) => setFromId(e.target.value)}>
+            {from.map((f) => (
+              <option key={f.categoryId ?? 'any'} value={f.categoryId ?? ''}>
+                {f.name} ({formatMinutes(Math.floor(f.seconds / 60))})
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="To">
+          <select className="select" value={toId} onChange={(e) => setToId(e.target.value)}>
+            <option value="">Choose…</option>
+            {(cats.data ?? [])
+              .filter((x: any) => x.id !== fromId)
+              .map((x: any) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <Field label="Minutes to change">
+          <input className="input" type="number" min={1} max={have} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+        </Field>
+      </div>
+      {preview.data && (
+        <div className="total-row">
+          <span>
+            {formatMinutes(preview.data.fromMinutes)} {preview.data.from} becomes
+          </span>
+          <span>
+            {formatMinutes(preview.data.toMinutes)} {preview.data.to}
+          </span>
+        </div>
       )}
     </Modal>
   );

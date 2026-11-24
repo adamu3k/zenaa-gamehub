@@ -201,11 +201,26 @@ const HOW_TO: Record<string, string> = {
   'AT Money': 'Dial *110# → Send Money → AT Money user → enter the number below → amount → Reference: your code → PIN.',
 };
 
-export function MomoTopup({ money, currencyCode, minorUnits }: { money(v: number): string; currencyCode: string; minorUnits: number }) {
+export function MomoTopup({
+  money,
+  currencyCode,
+  minorUnits,
+  preset,
+  title,
+  intro,
+}: {
+  money(v: number): string;
+  currencyCode: string;
+  minorUnits: number;
+  /** Amount filled in (e.g. what the customer owes). */
+  preset?: number;
+  title?: string;
+  intro?: string;
+}) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['portal', 'momo'], queryFn: () => pget<any>('/api/portal/momo') });
   const [network, setNetwork] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(preset ? (preset / 10 ** minorUnits).toFixed(minorUnits) : '');
   const [active, setActive] = useState<string | null>(null);
   const unit = 10 ** minorUnits;
   const parsed = parseMoney(amount, minorUnits);
@@ -229,10 +244,10 @@ export function MomoTopup({ money, currencyCode, minorUnits }: { money(v: number
   return (
     <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h2 style={{ margin: 0 }}>
-        <Smartphone size={18} style={{ verticalAlign: -3 }} /> Top up with MoMo — no fees from us
+        <Smartphone size={18} style={{ verticalAlign: -3 }} /> {title ?? 'Top up with MoMo — no fees from us'}
       </h2>
       <div className="dim" style={{ fontSize: 14 }}>
-        Send mobile money to our number with your personal code as the reference. Your wallet fills up as soon as we receive it.
+        {intro ?? 'Send mobile money to our number with your personal code as the reference. Your wallet fills up as soon as we receive it.'}
       </div>
       {q.data.accounts.length > 1 && (
         <div className="toolbar">
@@ -243,7 +258,7 @@ export function MomoTopup({ money, currencyCode, minorUnits }: { money(v: number
           ))}
         </div>
       )}
-      <div className="toolbar">
+      <div className="toolbar" hidden={!!preset}>
         {[20, 50, 100].map((x) => (
           <button key={x} type="button" className={`btn btn-sm ${parsed === x * unit ? 'btn-primary' : ''}`} onClick={() => setAmount(String(x))}>
             {money(x * unit)}

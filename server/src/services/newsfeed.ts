@@ -225,6 +225,28 @@ function testMode() {
   return process.env.NODE_ENV === 'test' || !!process.env.VITEST;
 }
 
+const HIDDEN = 'news_feed_hidden';
+async function hiddenSet(ctx: Ctx) {
+  return new Set((await getKv<string[]>(ctx.db, HIDDEN)) ?? []);
+}
+const visible = (items: FeedItem[], hidden: Set<string>) => (hidden.size ? items.filter((i) => !hidden.has(i.url)) : items);
+
+/** Staff removed these stories (or 'all' = everything showing now). Returns how many are hidden now. */
+export async function hideNews(ctx: Ctx, urls: string[] | 'all') {
+  const h = await hiddenSet(ctx);
+  if (urls === 'all') {
+    const c = await getKv<Cache>(ctx.db, KV);
+    for (const i of c?.items ?? []) h.add(i.url);
+    for (const list of Object.values(c?.perFeed ?? {})) for (const i of list) h.add(i.url);
+  } else for (const u of urls) h.add(u);
+  // Keep the list from growing for ever.
+  await setKv(ctx.db, HIDDEN, [...h].slice(-2000));
+  return h.size;
+}
+export async function unhideAllNews(ctx: Ctx) {
+  await setKv(ctx.db, HIDDEN, []);
+}
+
 /** Outside stories for the portal. Never waits for the internet: refreshes in the background when old. */
 export async function outsideNews(ctx: Ctx): Promise<FeedItem[]> {
   const s = await getSettings(ctx.db);
@@ -236,7 +258,7 @@ export async function outsideNews(ctx: Ctx): Promise<FeedItem[]> {
     inflight = refresh(ctx, s.newsFeeds, key).finally(() => (inflight = null));
     inflight.catch(() => undefined);
   }
-  return cache?.key === key ? cache.items : [];
+  return cache?.key === key ? visible(cache.items, await hiddenSet(ctx)) : [];
 }
 
 /** Staff: read every feed now and show what worked. */
@@ -244,12 +266,14 @@ export async function refreshNow(ctx: Ctx) {
   const s = await getSettings(ctx.db);
   if (!s.newsFeeds.length) return { fetchedAt: null, status: [], items: [] };
   const c = await (inflight ?? refresh(ctx, s.newsFeeds, keyOf(s.newsFeeds)));
-  return { fetchedAt: new Date(c.fetchedAt).toISOString(), status: c.status, items: c.items.slice(0, 12) };
+  return { fetchedAt: new Date(c.fetchedAt).toISOString(), status: c.status, items: visible(c.items, await hiddenSet(ctx)).slice(0, 12) };
 }
 
 export async function feedStatus(ctx: Ctx) {
   const c = await getKv<Cache>(ctx.db, KV);
-  return c ? { fetchedAt: new Date(c.fetchedAt).toISOString(), status: c.status, items: c.items.slice(0, 12) } : { fetchedAt: null, status: [], items: [] };
+  return c
+    ? { fetchedAt: new Date(c.fetchedAt).toISOString(), status: c.status, items: visible(c.items, await hiddenSet(ctx)).slice(0, 12), hidden: (await hiddenSet(ctx)).size }
+    : { fetchedAt: null, status: [], items: [], hidden: 0 };
 }
 
 /** Staff "Test" button for one address. */

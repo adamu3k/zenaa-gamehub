@@ -5,7 +5,7 @@ import { actorOf } from '../auth/plugin.js';
 import type { Ctx } from '../context.js';
 import { customers, payments, sessionEvents, sessions, staff, stations } from '../db/schema.js';
 import { notFound, parse } from '../lib/errors.js';
-import { describeSession, endSession, extendSession, pauseSession, resumeSession, startSession } from '../services/sessions.js';
+import { describeSession, endSession, extendSession, pauseSession, reduceSession, resumeSession, startSession } from '../services/sessions.js';
 import { formatCustomerCode } from '../services/wallet.js';
 import { pinGate } from '../services/pins.js';
 
@@ -16,6 +16,7 @@ export async function sessionRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post<{ Params: { id: string } }>('/api/sessions/:id/pause', op, async (req) => pauseSession(ctx, actorOf(req), req.params.id, req.body));
   app.post<{ Params: { id: string } }>('/api/sessions/:id/resume', op, async (req) => resumeSession(ctx, actorOf(req), req.params.id));
   app.post<{ Params: { id: string } }>('/api/sessions/:id/extend', op, async (req) => extendSession(ctx, actorOf(req), req.params.id, req.body));
+  app.post<{ Params: { id: string } }>('/api/sessions/:id/reduce', op, async (req) => reduceSession(ctx, actorOf(req), req.params.id, req.body));
   app.post<{ Params: { id: string } }>('/api/sessions/:id/end', op, async (req) => {
     const manual = Number((req.body as { manualDiscount?: unknown } | undefined)?.manualDiscount ?? 0);
     const actor = manual > 0 ? await pinGate(ctx, req, 'discount', 'payments.discount') : actorOf(req);

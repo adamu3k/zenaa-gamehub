@@ -186,6 +186,8 @@ export const pricingPlans = pgTable('pricing_plans', {
   packagePrice: money('package_price'),
   active: boolean('active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
+  /** Deleted by staff but kept because past sessions use it (hidden everywhere). */
+  deletedAt: ts('deleted_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
@@ -241,6 +243,12 @@ export const customers = pgTable(
     avatarAt: ts('avatar_at'),
     /** Saved playing time (seconds) the customer can continue on a later visit. */
     savedSeconds: integer('saved_seconds').notNull().default(0),
+    /** Part of savedSeconds that only plays on one station type: { "<categoryId>": seconds }. The rest plays anywhere. */
+    timeByCategory: jsonb('time_by_category').$type<Record<string, number>>().notNull().default({}),
+    /** Last time the customer used the app (for "online now" in chat). */
+    lastSeenAt: ts('last_seen_at'),
+    /** Deleted by staff: personal details are wiped, the row stays so past payments and results add up. */
+    deletedAt: ts('deleted_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -300,6 +308,8 @@ export const happyHours = pgTable('happy_hours', {
   /** Null = every station category. */
   categoryId: uuid('category_id').references(() => stationCategories.id),
   active: boolean('active').notNull().default(true),
+  /** Deleted by staff but kept because past sessions used it (hidden everywhere). */
+  deletedAt: ts('deleted_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
@@ -320,6 +330,8 @@ export const promoCodes = pgTable('promo_codes', {
   active: boolean('active').notNull().default(true),
   /** Listed on the customer app's Rewards page so customers can copy it. */
   showInPortal: boolean('show_in_portal').notNull().default(false),
+  /** Deleted by staff but kept because past sessions used it (hidden everywhere). */
+  deletedAt: ts('deleted_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
@@ -396,6 +408,7 @@ export const sessionEventType = pgEnum('session_event_type', [
   'system_pause',
   'payment',
   'refund',
+  'reduce',
 ]);
 
 export const sessionEvents = pgTable(
@@ -491,6 +504,11 @@ export const bookings = pgTable(
     /** portal | staff */
     source: text('source').notNull(),
     sessionId: uuid('session_id').references(() => sessions.id),
+    /** counter = pay when they arrive; wallet = paid from the wallet (the time was put on their saved time); saved = plays from saved time. */
+    payment: text('payment').notNull().default('counter'),
+    planId: uuid('plan_id'),
+    paidAmount: money('paid_amount').notNull().default(0),
+    paidSeconds: integer('paid_seconds').notNull().default(0),
     note: text('note'),
     cancelReason: text('cancel_reason'),
     createdBy: uuid('created_by').references(() => staff.id),
@@ -937,6 +955,8 @@ export const customerTimeLog = pgTable(
     seconds: integer('seconds').notNull(),
     balanceAfter: integer('balance_after').notNull(),
     sessionId: uuid('session_id').references(() => sessions.id),
+    /** Station type this time plays on (null = any station). */
+    categoryId: uuid('category_id'),
     planName: text('plan_name'),
     amount: money('amount'),
     note: text('note'),
@@ -945,3 +965,36 @@ export const customerTimeLog = pgTable(
   },
   (t) => [index('customer_time_log_customer_idx').on(t.customerId, t.createdAt)],
 );
+
+/** Things put on a customer's account to pay later (besides unpaid sessions): play not paid for, drinks, time added for another player. */
+export const customerCharges = pgTable(
+  'customer_charges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    number: serial('number').notNull().unique(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    amount: money('amount').notNull(),
+    paidAmount: money('paid_amount').notNull().default(0),
+    note: text('note').notNull(),
+    /** When the charge came from adding time to a session (paid by this account). */
+    sessionId: uuid('session_id').references(() => sessions.id),
+    staffId: uuid('staff_id').references(() => staff.id),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    paidAt: ts('paid_at'),
+  },
+  (t) => [index('customer_charges_customer_idx').on(t.customerId, t.createdAt)],
+);
+
+/** Phones/browsers that asked for notifications (Web Push). */
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  userAgent: text('user_agent'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  lastOkAt: ts('last_ok_at'),
+});

@@ -4,13 +4,14 @@ import { MorePage, PortalChat, PortalRewards, RewardsTeaser, useChatUnread } fro
 import { MomoTopup, NewsFeed, NewsPreview } from './PortalExtras';
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { ErrorBox, Field, StatusBadge } from '../components/ui';
+import { ErrorBox, Field, StatusBadge, PasswordInput } from '../components/ui';
 import { formatDateTime, formatMinutes, formatMoney, formatTime, PLATFORM_LABEL, parseMoney } from '../lib/format';
 import { ThemeToggle } from '../lib/theme';
 import { getPortalToken, onPortalSignedOut, papi, pdel, pget, ppatch, ppost, setPortalToken } from './portal-api';
 import { InstallButton, isStandalone, setupPwa } from '../lib/pwa';
 import { Avatar } from '../competitions/ui';
 import { CompeteTeaser, PortalFindMatch, PortalLeaderboard, PortalTournament, PortalTournaments } from './PortalCompete';
+import { BookingActions, BookingPayChoice, MainBalance, MyPlayCard, NotificationsCard, PayOwedCard, SavedTimeCard } from './PortalPlay';
 
 interface Info {
   centerName: string;
@@ -33,6 +34,8 @@ interface Info {
   socialLinks?: Record<string, string>;
   chatEnabled?: boolean;
   rewardsEnabled?: boolean;
+  selfStart?: boolean;
+  autoPayOwed?: boolean;
 }
 
 interface PortalCtx {
@@ -47,13 +50,27 @@ const usePortal = () => useContext(Ctx);
 export function PortalApp() {
   const qc = useQueryClient();
   const [token, setTok] = useState(getPortalToken);
-  const infoQ = useQuery({ queryKey: ['portal', 'info'], queryFn: () => pget<Info>('/api/portal/info'), staleTime: 60_000 });
+  const infoQ = useQuery({
+    queryKey: ['portal', 'info'],
+    queryFn: () => pget<Info>('/api/portal/info'),
+    staleTime: 60_000,
+  });
   useEffect(() => {
     onPortalSignedOut(() => setTok(null));
     setupPwa('portal');
   }, []);
-  if (infoQ.error) return <Centered><ErrorBox error={infoQ.error} /></Centered>;
-  if (!infoQ.data) return <Centered><span className="muted">Loading…</span></Centered>;
+  if (infoQ.error)
+    return (
+      <Centered>
+        <ErrorBox error={infoQ.error} />
+      </Centered>
+    );
+  if (!infoQ.data)
+    return (
+      <Centered>
+        <span className="muted">Loading…</span>
+      </Centered>
+    );
   const info = infoQ.data;
   const value: PortalCtx = {
     info,
@@ -114,10 +131,16 @@ function Closed() {
 function AuthScreen() {
   const { info, signIn } = usePortal();
   // QR posters link to /portal?signup to open the sign-up form straight away.
-  const [mode, setMode] = useState<'login' | 'signup' | 'code'>(() =>
-    new URLSearchParams(window.location.search).has('signup') && info.selfSignup ? 'signup' : 'login',
-  );
-  const [f, setF] = useState({ login: '', password: '', fullName: '', phone: '', email: '', code: '', confirm: '' });
+  const [mode, setMode] = useState<'login' | 'signup' | 'code'>(() => (new URLSearchParams(window.location.search).has('signup') && info.selfSignup ? 'signup' : 'login'));
+  const [f, setF] = useState({
+    login: '',
+    password: '',
+    fullName: '',
+    phone: '',
+    email: '',
+    code: '',
+    confirm: '',
+  });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
@@ -130,10 +153,22 @@ function AuthScreen() {
     try {
       const r =
         mode === 'login'
-          ? await ppost('/api/portal/login', { login: f.login, password: f.password })
+          ? await ppost('/api/portal/login', {
+              login: f.login,
+              password: f.password,
+            })
           : mode === 'signup'
-            ? await ppost('/api/portal/signup', { fullName: f.fullName, phone: f.phone, email: f.email, password: f.password })
-            : await ppost('/api/portal/activate', { phone: f.phone, code: f.code, password: f.password });
+            ? await ppost('/api/portal/signup', {
+                fullName: f.fullName,
+                phone: f.phone,
+                email: f.email,
+                password: f.password,
+              })
+            : await ppost('/api/portal/activate', {
+                phone: f.phone,
+                code: f.code,
+                password: f.password,
+              });
       signIn(r.token);
     } catch (err) {
       setError(err);
@@ -171,7 +206,7 @@ function AuthScreen() {
               <input className="input" autoFocus autoComplete="username" value={f.login} onChange={set('login')} required />
             </Field>
             <Field label="Password">
-              <input className="input" type="password" autoComplete="current-password" value={f.password} onChange={set('password')} required />
+              <PasswordInput className="input" autoComplete="current-password" value={f.password} onChange={set('password')} required />
             </Field>
             <div className="hint">Forgot your password? Ask staff at the counter for a code, then use “I have a code”.</div>
           </>
@@ -203,10 +238,10 @@ function AuthScreen() {
         {mode !== 'login' && (
           <>
             <Field label="Choose a password" hint="At least 8 characters">
-              <input className="input" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} minLength={8} required />
+              <PasswordInput className="input" autoComplete="new-password" value={f.password} onChange={set('password')} minLength={8} required />
             </Field>
             <Field label="Repeat password">
-              <input className="input" type="password" autoComplete="new-password" value={f.confirm} onChange={set('confirm')} minLength={8} required />
+              <PasswordInput className="input" autoComplete="new-password" value={f.confirm} onChange={set('confirm')} minLength={8} required />
             </Field>
           </>
         )}
@@ -225,7 +260,11 @@ function AuthScreen() {
 // ───────────────────────── Signed-in shell ─────────────────────────
 
 function useMe() {
-  return useQuery({ queryKey: ['portal', 'me'], queryFn: () => pget('/api/portal/me'), refetchInterval: 30_000 });
+  return useQuery({
+    queryKey: ['portal', 'me'],
+    queryFn: () => pget('/api/portal/me'),
+    refetchInterval: 30_000,
+  });
 }
 
 function Signed() {
@@ -233,12 +272,28 @@ function Signed() {
   const me = useMe();
   const unread = useChatUnread(!!info.chatEnabled && !!me.data);
   const dot = (n: number) => (n > 0 ? <span className="nav-count">{n}</span> : undefined);
-  const nav: { to: string; label: string; icon: any; end: boolean; badge?: ReactNode }[] = [
+  const nav: {
+    to: string;
+    label: string;
+    icon: any;
+    end: boolean;
+    badge?: ReactNode;
+  }[] = [
     { to: '/portal', label: 'Home', icon: Home, end: true },
     { to: '/portal/news', label: 'News', icon: Megaphone, end: false },
     ...(info.bookingsEnabled ? [{ to: '/portal/book', label: 'Book', icon: CalendarDays, end: false }] : []),
     ...(info.matchmakingEnabled ? [{ to: '/portal/match', label: 'Match', icon: Swords, end: false }] : []),
-    ...(info.chatEnabled ? [{ to: '/portal/chat', label: 'Chat', icon: MessagesSquare, end: false, badge: dot(unread.dms) }] : []),
+    ...(info.chatEnabled
+      ? [
+          {
+            to: '/portal/chat',
+            label: 'Chat',
+            icon: MessagesSquare,
+            end: false,
+            badge: dot(unread.dms),
+          },
+        ]
+      : []),
     { to: '/portal/ranks', label: 'Ranks', icon: Medal, end: false },
     { to: '/portal/cups', label: 'Cups', icon: Trophy, end: false },
     ...(info.rewardsEnabled ? [{ to: '/portal/rewards', label: 'Rewards', icon: Gift, end: false }] : []),
@@ -246,7 +301,10 @@ function Signed() {
     { to: '/portal/profile', label: 'Profile', icon: User, end: false },
   ];
   // Phones: four main destinations in a bottom tab bar, then "More" with everything; wallet & profile also sit in the top bar.
-  const bottom = [...nav.filter((n) => ['/portal', '/portal/book', '/portal/match', '/portal/chat', '/portal/news', '/portal/ranks'].includes(n.to)).slice(0, 4), { to: '/portal/more', label: 'More', icon: LayoutGrid, end: false }];
+  const bottom = [
+    ...nav.filter((n) => ['/portal', '/portal/book', '/portal/match', '/portal/chat', '/portal/news', '/portal/ranks'].includes(n.to)).slice(0, 4),
+    { to: '/portal/more', label: 'More', icon: LayoutGrid, end: false },
+  ];
   return (
     <div className="portal">
       <div className="portal-top">
@@ -303,7 +361,11 @@ function Signed() {
           <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
             <n.icon size={21} />
             <span>{n.label}</span>
-            {n.to === '/portal/chat' ? nav.find((x) => x.to === '/portal/chat')?.badge : n.to === '/portal/more' && unread.dms > 0 && !bottom.some((b) => b.to === '/portal/chat') ? dot(unread.dms) : null}
+            {n.to === '/portal/chat'
+              ? nav.find((x) => x.to === '/portal/chat')?.badge
+              : n.to === '/portal/more' && unread.dms > 0 && !bottom.some((b) => b.to === '/portal/chat')
+                ? dot(unread.dms)
+                : null}
           </NavLink>
         ))}
       </nav>
@@ -313,14 +375,24 @@ function Signed() {
 
 function HomePage({ me }: { me: any }) {
   const { money, info } = usePortal();
-  const stations = useQuery({ queryKey: ['portal', 'stations'], queryFn: () => pget('/api/portal/stations'), refetchInterval: 30_000 });
-  const prices = useQuery({ queryKey: ['portal', 'prices'], queryFn: () => pget('/api/portal/prices'), staleTime: 300_000 });
+  const stations = useQuery({
+    queryKey: ['portal', 'stations'],
+    queryFn: () => pget('/api/portal/stations'),
+    refetchInterval: 30_000,
+  });
+  const prices = useQuery({
+    queryKey: ['portal', 'prices'],
+    queryFn: () => pget('/api/portal/prices'),
+    staleTime: 300_000,
+  });
   const free = (stations.data ?? []).filter((s: any) => s.state === 'available').length;
   return (
     <>
       <div className="portal-hello">
         <div>
-          <div className="dim" style={{ fontSize: 13 }}>Welcome back</div>
+          <div className="dim" style={{ fontSize: 13 }}>
+            Welcome back
+          </div>
           <h1>{me.gamertag || me.fullName.split(/\s+/)[0]} 👋</h1>
         </div>
       </div>
@@ -329,57 +401,54 @@ function HomePage({ me }: { me: any }) {
           <img src="/icons/icon-192.png" alt="" width={44} height={44} style={{ borderRadius: 12 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <strong>Get the {info.centerName} app</strong>
-            <div className="dim" style={{ fontSize: 12 }}>Opens full screen from your home screen — no app store needed.</div>
+            <div className="dim" style={{ fontSize: 12 }}>
+              Opens full screen from your home screen — no app store needed.
+            </div>
           </div>
           <InstallButton compact label="Install" />
         </div>
       )}
+      <MyPlayCard me={me} selfStart={!!info.selfStart} />
       <NewsPreview />
       {info.rewardsEnabled && <RewardsTeaser money={money} />}
       <div className="grid stats">
         <div className="card hero-balance">
-          <span className="stat-label">Wallet balance</span>
-          <span className="big">{money(me.balance)}</span>
+          <span className="stat-label">{me.outstanding > 0 ? 'Main balance' : 'Wallet balance'}</span>
+          <MainBalance me={me} money={money} light />
           <span style={{ fontSize: 13, opacity: 0.9 }}>
-            {me.points} points{me.tierName ? ` · ${me.tierName} member (${me.tierDiscount}% off)` : ''}
+            {me.points} points
+            {me.tierName ? ` · ${me.tierName} member (${me.tierDiscount}% off)` : ''}
           </span>
           <div className="toolbar" style={{ marginTop: 6 }}>
             {(info.paystackEnabled || info.momoTopupEnabled) && (
-              <NavLink to="/portal/wallet" className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.18)', borderColor: 'transparent', color: '#fff' }}>
+              <NavLink
+                to="/portal/wallet"
+                className="btn btn-sm"
+                style={{
+                  background: 'rgba(255,255,255,0.18)',
+                  borderColor: 'transparent',
+                  color: '#fff',
+                }}
+              >
                 Top up
               </NavLink>
             )}
             {info.bookingsEnabled && (
-              <NavLink to="/portal/book" className="btn btn-sm" style={{ background: '#fff', borderColor: '#fff', color: '#4b2bd6' }}>
+              <NavLink
+                to="/portal/book"
+                className="btn btn-sm"
+                style={{
+                  background: '#fff',
+                  borderColor: '#fff',
+                  color: '#4b2bd6',
+                }}
+              >
                 Book a station
               </NavLink>
             )}
           </div>
         </div>
-        {(me.savedSeconds >= 60 || me.timeLog?.length > 0) && (
-          <div className="card stat">
-            <span className="stat-label">⏱ Your saved time</span>
-            <span className="stat-value" style={{ color: me.savedSeconds >= 60 ? 'var(--success)' : undefined }}>
-              {formatMinutes(Math.floor(me.savedSeconds / 60))}
-            </span>
-            <span className="stat-sub">
-              {me.savedSeconds >= 60 ? 'Tell the counter to continue your time on any station' : 'All used — buy a package at the counter'}
-            </span>
-            {me.timeLog?.length > 0 && (
-              <details style={{ marginTop: 6, fontSize: 12 }}>
-                <summary className="dim">History</summary>
-                {me.timeLog.slice(0, 10).map((t: any) => (
-                  <div key={t.id} className="dim">
-                    {formatDateTime(t.createdAt)} · {{ bought: 'Bought', saved: 'Saved', used: 'Played', adjust: 'Changed' }[t.kind as string] ?? t.kind}{' '}
-                    {t.seconds < 0 ? '−' : '+'}
-                    {formatMinutes(Math.floor(Math.abs(t.seconds) / 60))}
-                    {t.planName ? ` · ${t.planName}` : ''}
-                  </div>
-                ))}
-              </details>
-            )}
-          </div>
-        )}
+        <SavedTimeCard me={me} />
         <div className="card stat">
           <span className="stat-label">
             <Gamepad2 size={14} /> Free right now
@@ -391,15 +460,7 @@ function HomePage({ me }: { me: any }) {
             Open {info.openingTime}–{info.closingTime}
           </span>
         </div>
-        {me.outstanding > 0 && (
-          <div className="card stat">
-            <span className="stat-label">You owe</span>
-            <span className="stat-value" style={{ color: 'var(--warning)' }}>
-              {money(me.outstanding)}
-            </span>
-            <span className="stat-sub">Pay at the counter</span>
-          </div>
-        )}
+        <PayOwedCard me={me} info={info} money={money} />
       </div>
 
       <CompeteTeaser me={me} />
@@ -413,7 +474,7 @@ function HomePage({ me }: { me: any }) {
             </NavLink>
           )}
         </div>
-        <BookingList bookings={me.upcomingBookings} empty="No upcoming bookings" />
+        <BookingList bookings={me.upcomingBookings} empty="No upcoming bookings" playing={!!me.activeSession} />
       </div>
 
       <div className="grid two-col">
@@ -458,7 +519,8 @@ function HomePage({ me }: { me: any }) {
   );
 }
 
-function BookingList({ bookings, empty, cancellable }: { bookings: any[]; empty: string; cancellable?: boolean }) {
+function BookingList({ bookings, empty, cancellable, playing }: { bookings: any[]; empty: string; cancellable?: boolean; playing?: boolean }) {
+  const { info, money } = usePortal();
   const qc = useQueryClient();
   const cancel = useMutation({
     mutationFn: (id: string) => ppost(`/api/portal/bookings/${id}/cancel`),
@@ -475,16 +537,26 @@ function BookingList({ bookings, empty, cancellable }: { bookings: any[]; empty:
         return (
           <div key={b.id} className="list-item">
             <span>
-              <strong>{b.stationName}</strong> · {new Date(b.startAt).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
+              <strong>{b.stationName}</strong> ·{' '}
+              {new Date(b.startAt).toLocaleDateString(undefined, {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+              })}{' '}
               {formatTime(b.startAt)}–{formatTime(b.endAt)}
               <div className="dim" style={{ fontSize: 12 }}>
                 Booking #{b.number} · {formatMinutes(b.minutes)}
               </div>
             </span>
-            <span className="toolbar" style={{ flexWrap: 'nowrap' }}>
+            <span className="toolbar" style={{ justifyContent: 'flex-end' }}>
               <StatusBadge status={b.status} />
+              <BookingActions b={b} selfStart={!!info.selfStart} playing={!!playing} money={money} />
               {canCancel && (
-                <button className="btn btn-sm btn-ghost" disabled={cancel.isPending} onClick={() => window.confirm('Cancel this booking?') && cancel.mutate(b.id)}>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  disabled={cancel.isPending}
+                  onClick={() => window.confirm(b.payment === 'wallet' ? 'Cancel this booking? The time you paid for stays on your saved time.' : 'Cancel this booking?') && cancel.mutate(b.id)}
+                >
                   Cancel
                 </button>
               )}
@@ -501,6 +573,17 @@ function BookingList({ bookings, empty, cancellable }: { bookings: any[]; empty:
 const pad = (n: number) => String(n).padStart(2, '0');
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 const DURATIONS = [30, 60, 90, 120, 180, 240];
+const isoLocal = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** Start of a custom "HH:MM" on a day (times before opening count as after midnight when the venue closes after midnight). */
+function customStart(day: Date, hhmm: string, info: Info) {
+  if (!/^\d{2}:\d{2}$/.test(hhmm)) return null;
+  let m = toMin(hhmm);
+  const open = toMin(info.openingTime);
+  const close = toMin(info.closingTime);
+  if (close <= open && m < open && m < close) m += 24 * 60;
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, m);
+}
 
 /** Start times (every 30 min) inside opening hours for a given calendar day. */
 function slotsFor(day: Date, info: Info, minutes: number) {
@@ -525,20 +608,60 @@ function BookPage() {
   });
   const [dayIdx, setDayIdx] = useState(0);
   const [minutes, setMinutes] = useState(60);
+  const [customLen, setCustomLen] = useState(false);
+  const [lenH, setLenH] = useState('1');
+  const [lenM, setLenM] = useState('0');
+  // when: now = start this minute; slot = 30-minute list; custom = any minute
+  const [when, setWhen] = useState<'now' | 'slot' | 'custom'>('slot');
+  const [customTime, setCustomTime] = useState('');
   const slots = slotsFor(days[dayIdx], info, minutes);
   const [start, setStart] = useState<string>('');
-  const startIso = slots.some((s) => s.toISOString() === start) ? start : '';
+  const [nowAt, setNowAt] = useState(() => new Date());
+  useEffect(() => {
+    if (when !== 'now') return;
+    setNowAt(new Date());
+    const t = setInterval(() => setNowAt(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, [when]);
+  const custom = when === 'custom' ? customStart(days[dayIdx], customTime, info) : null;
+  const customErr = custom && custom.getTime() < Date.now() + info.bookingMinNoticeMinutes * 60_000 ? `Pick a time at least ${info.bookingMinNoticeMinutes} min from now — or use "Now"` : null;
+  const startIso =
+    when === 'now'
+      ? new Date(Math.floor(nowAt.getTime() / 60_000) * 60_000).toISOString()
+      : when === 'custom'
+        ? custom && !customErr
+          ? custom.toISOString()
+          : ''
+        : slots.some((s) => s.toISOString() === start)
+          ? start
+          : '';
   const [stationId, setStationId] = useState('');
   const [note, setNote] = useState('');
+  const [pay, setPay] = useState('counter');
+  const [planId, setPlanId] = useState('');
   const [done, setDone] = useState<any>(null);
+  const { money } = usePortal();
+  const me = useMe();
   const avail = useQuery({
     queryKey: ['portal', 'availability', startIso, minutes],
     queryFn: () => pget(`/api/portal/availability?start=${encodeURIComponent(startIso)}&minutes=${minutes}`),
     enabled: !!startIso,
   });
-  const mine = useQuery({ queryKey: ['portal', 'bookings'], queryFn: () => pget('/api/portal/bookings') });
+  const mine = useQuery({
+    queryKey: ['portal', 'bookings'],
+    queryFn: () => pget('/api/portal/bookings'),
+  });
   const book = useMutation({
-    mutationFn: () => ppost('/api/portal/bookings', { stationId, startAt: startIso, minutes, note: note || null }),
+    mutationFn: () =>
+      ppost('/api/portal/bookings', {
+        planId: pay === 'wallet' && planId ? planId : undefined,
+        stationId,
+        startAt: when === 'now' ? new Date().toISOString() : startIso,
+        minutes,
+        note: note || null,
+        pay,
+        now: when === 'now' || undefined,
+      }),
     onSuccess: (b) => {
       setDone(b);
       setStationId('');
@@ -553,45 +676,141 @@ function BookPage() {
         <h2>Book a station</h2>
         {done && (
           <div className="card card-pad" style={{ borderColor: 'var(--success)' }}>
-            <strong>Booked!</strong> {done.status === 'pending' ? 'Staff will confirm it shortly.' : 'Your station is reserved.'} Please arrive on time — bookings are released
-            if you are more than a few minutes late.
+            <strong>Booked!</strong> {done.status === 'pending' ? 'Staff will confirm it shortly.' : 'Your station is reserved.'}{' '}
+            {done.payment === 'wallet'
+              ? `Paid ${money(done.paidAmount)} from your wallet. When you arrive, press Start on your booking.`
+              : done.payment === 'saved'
+                ? 'It will use your saved time. When you arrive, press Start on your booking.'
+                : 'Pay at the counter when you arrive.'}{' '}
+            Bookings are released if you are more than a few minutes late.
           </div>
         )}
         <ErrorBox error={book.error} />
+        <div className="toolbar">
+          <button
+            type="button"
+            className={`btn ${when === 'now' ? 'btn-primary' : ''}`}
+            onClick={() => {
+              setWhen('now');
+              setDayIdx(0);
+            }}
+          >
+            ⚡ Book now
+          </button>
+          <button type="button" className={`btn ${when === 'slot' ? 'btn-primary' : ''}`} onClick={() => setWhen('slot')}>
+            Pick a time
+          </button>
+          <button type="button" className={`btn ${when === 'custom' ? 'btn-primary' : ''}`} onClick={() => setWhen('custom')}>
+            Exact time
+          </button>
+        </div>
+        {when === 'now' && <div className="hint">Starts right now ({isoLocal(nowAt)}). Choose how long, then a free station.</div>}
         <div className="form-grid">
-          <Field label="Day">
-            <select className="select" value={dayIdx} onChange={(e) => setDayIdx(Number(e.target.value))}>
-              {days.map((d, i) => (
-                <option key={i} value={i}>
-                  {i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {when !== 'now' && (
+            <Field label="Day">
+              <select className="select" value={dayIdx} onChange={(e) => setDayIdx(Number(e.target.value))}>
+                {days.map((d, i) => (
+                  <option key={i} value={i}>
+                    {i === 0
+                      ? 'Today'
+                      : i === 1
+                        ? 'Tomorrow'
+                        : d.toLocaleDateString(undefined, {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label="How long">
-            <select className="select" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+            <select
+              className="select"
+              value={customLen ? 'custom' : minutes}
+              onChange={(e) => {
+                if (e.target.value === 'custom') {
+                  setCustomLen(true);
+                  setLenH(String(Math.floor(minutes / 60)));
+                  setLenM(String(minutes % 60));
+                } else {
+                  setCustomLen(false);
+                  setMinutes(Number(e.target.value));
+                }
+              }}
+            >
               {DURATIONS.map((d) => (
                 <option key={d} value={d}>
                   {formatMinutes(d)}
                 </option>
               ))}
+              <option value="custom">Other length…</option>
             </select>
           </Field>
-          <Field label="Start time" full>
-            <select className="select" value={startIso} onChange={(e) => setStart(e.target.value)}>
-              <option value="">{slots.length ? 'Choose a time…' : 'No times left on this day'}</option>
-              {slots.map((s) => (
-                <option key={s.toISOString()} value={s.toISOString()}>
-                  {pad(s.getHours())}:{pad(s.getMinutes())}
-                  {s.getDate() !== days[dayIdx].getDate() ? ' (after midnight)' : ''}
-                </option>
-              ))}
-            </select>
-          </Field>
+          {customLen && (
+            <Field label="Length (hours and minutes)" hint="From 15 minutes to 12 hours.">
+              <div className="toolbar" style={{ flexWrap: 'nowrap' }}>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={12}
+                  value={lenH}
+                  aria-label="Hours"
+                  onChange={(e) => {
+                    setLenH(e.target.value);
+                    const t = (Number(e.target.value) || 0) * 60 + (Number(lenM) || 0);
+                    if (t >= 15 && t <= 720) setMinutes(t);
+                  }}
+                />
+                <span>h</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={59}
+                  step={5}
+                  value={lenM}
+                  aria-label="Minutes"
+                  onChange={(e) => {
+                    setLenM(e.target.value);
+                    const t = (Number(lenH) || 0) * 60 + (Number(e.target.value) || 0);
+                    if (t >= 15 && t <= 720) setMinutes(t);
+                  }}
+                />
+                <span>min</span>
+              </div>
+            </Field>
+          )}
+          {when === 'custom' && (
+            <Field label="Start at (any minute)" full>
+              <input className="input" type="time" step={60} value={customTime} onChange={(e) => setCustomTime(e.target.value)} />
+              {customErr && <div className="error-text">{customErr}</div>}
+            </Field>
+          )}
+          {when === 'slot' && (
+            <Field label="Start time" full>
+              <select className="select" value={startIso} onChange={(e) => setStart(e.target.value)}>
+                <option value="">{slots.length ? 'Choose a time…' : 'No times left on this day'}</option>
+                {slots.map((s) => (
+                  <option key={s.toISOString()} value={s.toISOString()}>
+                    {pad(s.getHours())}:{pad(s.getMinutes())}
+                    {s.getDate() !== days[dayIdx].getDate() ? ' (after midnight)' : ''}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
         </div>
         {startIso && (
           <>
-            <h3>Choose a station</h3>
+            <h3>Choose a station {when === 'now' ? '— free now' : `— ${formatTime(startIso)} to ${formatTime(new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString())}`}</h3>
+            {avail.data && !avail.data.withinHours && (
+              <div className="error-text">
+                That time is outside opening hours ({avail.data.openingTime}–{avail.data.closingTime}).
+              </div>
+            )}
             <ErrorBox error={avail.error} />
             <div className="slot-grid">
               {(avail.data?.stations ?? []).map((s: any) => (
@@ -607,12 +826,32 @@ function BookPage() {
                 </button>
               ))}
             </div>
+            <BookingPayChoice
+              stationId={stationId}
+              minutes={minutes}
+              value={pay}
+              onChange={setPay}
+              money={money}
+              planId={planId}
+              onPlan={(id, len) => {
+                setPlanId(id);
+                if (len && len >= 15 && len <= 720 && len !== minutes) {
+                  setMinutes(len);
+                  if (DURATIONS.includes(len)) setCustomLen(false);
+                  else {
+                    setCustomLen(true);
+                    setLenH(String(Math.floor(len / 60)));
+                    setLenM(String(len % 60));
+                  }
+                }
+              }}
+            />
             <Field label="Note for staff (optional)">
               <input className="input" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="e.g. we are 4 players" />
             </Field>
             <div>
               <button className="btn btn-primary" disabled={!chosen || book.isPending} onClick={() => book.mutate()}>
-                {chosen ? `Book ${chosen.name} · ${formatTime(startIso)} for ${formatMinutes(minutes)}` : 'Pick a station'}
+                {chosen ? `${pay === 'wallet' ? 'Pay & book' : 'Book'} ${chosen.name} · ${when === 'now' ? 'now' : formatTime(startIso)} for ${formatMinutes(minutes)}` : 'Pick a station'}
               </button>
             </div>
           </>
@@ -622,7 +861,7 @@ function BookPage() {
         <div className="card-head">
           <h2>My bookings</h2>
         </div>
-        <BookingList bookings={mine.data ?? []} empty="You have not booked yet" />
+        <BookingList bookings={mine.data ?? []} empty="You have not booked yet" playing={!!me.data?.activeSession} />
       </div>
     </>
   );
@@ -660,7 +899,9 @@ function WalletPage({ me }: { me: any }) {
           <h2>{info.momoTopupEnabled ? 'Pay by card or MoMo (Paystack)' : 'Top up your wallet'}</h2>
           {!info.paystackEnabled ? (
             <div className="muted">
-              {info.momoTopupEnabled ? 'Card payment is not available — use MoMo above, or pay at the counter.' : 'Online top-up is not available yet — top up with cash or mobile money at the counter.'}
+              {info.momoTopupEnabled
+                ? 'Card payment is not available — use MoMo above, or pay at the counter.'
+                : 'Online top-up is not available yet — top up with cash or mobile money at the counter.'}
             </div>
           ) : (
             <>
@@ -685,10 +926,14 @@ function WalletPage({ me }: { me: any }) {
             </>
           )}
         </div>
-        <div className="card hero-balance">
-          <span className="stat-label">Balance</span>
-          <span className="big">{money(me.balance)}</span>
-          <span style={{ fontSize: 13, opacity: 0.9 }}>{me.points} loyalty points</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card hero-balance">
+            <span className="stat-label">{me.outstanding > 0 ? 'Main balance' : 'Balance'}</span>
+            <MainBalance me={me} money={money} light />
+            <span style={{ fontSize: 13, opacity: 0.9 }}>{me.points} loyalty points</span>
+          </div>
+          <SavedTimeCard me={me} />
+          <PayOwedCard me={me} info={info} money={money} />
         </div>
       </div>
       {me.onlinePayments.length > 0 && (
@@ -707,7 +952,7 @@ function WalletPage({ me }: { me: any }) {
                 </span>
                 <span className="toolbar" style={{ flexWrap: 'nowrap' }}>
                   <span className="num">{money(o.amount)}</span>
-                  {o.status === 'pending' ? <span className='badge badge-warning'>Processing</span> : <StatusBadge status={o.status} />}
+                  {o.status === 'pending' ? <span className="badge badge-warning">Processing</span> : <StatusBadge status={o.status} />}
                 </span>
               </div>
             ))}
@@ -729,7 +974,13 @@ function WalletPage({ me }: { me: any }) {
                   {l.note ? ` · ${l.note}` : ''}
                 </div>
               </span>
-              <span className="num" style={{ color: l.amount < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
+              <span
+                className="num"
+                style={{
+                  color: l.amount < 0 ? 'var(--danger)' : 'var(--success)',
+                  fontWeight: 600,
+                }}
+              >
                 {l.amount > 0 ? '+' : ''}
                 {money(l.amount)}
               </span>
@@ -821,7 +1072,10 @@ function ProfilePicture({ me }: { me: any }) {
     mutationFn: async (file: File) => papi('PUT', '/api/portal/me/avatar', { image: await squareJpeg(file) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
   });
-  const remove = useMutation({ mutationFn: () => pdel('/api/portal/me/avatar'), onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }) });
+  const remove = useMutation({
+    mutationFn: () => pdel('/api/portal/me/avatar'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
+  });
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
       <Avatar name={me.gamertag || me.fullName} size={72} src={me.avatarUrl} />
@@ -864,7 +1118,15 @@ function ProfilePage({ me }: { me: any }) {
   const [hidden, setHidden] = useState<boolean>(!!me.leaderboardHidden);
   const [saved, setSaved] = useState(false);
   const save = useMutation({
-    mutationFn: () => ppatch('/api/portal/me', { fullName, email, gamertag, psnId, eaId, leaderboardHidden: hidden }),
+    mutationFn: () =>
+      ppatch('/api/portal/me', {
+        fullName,
+        email,
+        gamertag,
+        psnId,
+        eaId,
+        leaderboardHidden: hidden,
+      }),
     onSuccess: () => {
       setSaved(true);
       qc.invalidateQueries({ queryKey: ['portal', 'me'] });
@@ -873,7 +1135,11 @@ function ProfilePage({ me }: { me: any }) {
   const [pw, setPw] = useState({ current: '', next: '' });
   const [pwDone, setPwDone] = useState(false);
   const change = useMutation({
-    mutationFn: () => ppost('/api/portal/me/password', { currentPassword: pw.current, newPassword: pw.next }),
+    mutationFn: () =>
+      ppost('/api/portal/me/password', {
+        currentPassword: pw.current,
+        newPassword: pw.next,
+      }),
     onSuccess: (r: any) => {
       signIn(r.token);
       setPw({ current: '', next: '' });
@@ -882,6 +1148,7 @@ function ProfilePage({ me }: { me: any }) {
   });
   return (
     <div className="grid two-col">
+      <NotificationsCard />
       <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>My details</h2>
         <ProfilePicture me={me} />
@@ -931,10 +1198,10 @@ function ProfilePage({ me }: { me: any }) {
         <h2>Password</h2>
         <ErrorBox error={change.error} />
         <Field label="Current password">
-          <input className="input" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          <PasswordInput className="input" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
         </Field>
         <Field label="New password" hint="At least 8 characters. Other devices will be signed out.">
-          <input className="input" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+          <PasswordInput className="input" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
         </Field>
         <div className="toolbar">
           <button className="btn" disabled={change.isPending || !pw.current || pw.next.length < 8} onClick={() => change.mutate()}>

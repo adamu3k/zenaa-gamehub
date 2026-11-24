@@ -7,6 +7,7 @@ import { ErrorBox } from '../components/ui';
 import { formatDateTime, formatTime } from '../lib/format';
 import { SOCIALS } from './PortalExtras';
 import { pget, ppost } from './portal-api';
+import { PeopleFinder } from './PortalPlay';
 
 // ───────────────────────── Chat ─────────────────────────
 
@@ -58,8 +59,9 @@ export function PortalChat() {
             </span>
             {threads.data && threads.data.lobby.lastNumber > getSeen('lobby') && to !== 'lobby' && <span className="pc-dot" />}
           </button>
+          <PeopleFinder onOpen={(id, name) => open(id, name)} />
           <div className="dim pc-sub">Private messages</div>
-          {list.length === 0 && <div className="dim pc-empty">Tap a player's name in the Lobby, or "Message" in Find match, to talk privately.</div>}
+          {list.length === 0 && <div className="dim pc-empty">Find a player above, tap a name in the Lobby, or "Message" in Find match, to talk privately.</div>}
           {list.map((t) => (
             <button key={t.to} className={`pc-thread ${to === t.to ? 'active' : ''}`} onClick={() => open(t.to, t.name)}>
               <Avatar name={t.name} src={t?.avatarUrl} size={34} />

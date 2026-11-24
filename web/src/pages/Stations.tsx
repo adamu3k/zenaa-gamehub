@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, MessageSquare, Monitor, MonitorPlay, Pause, Pencil, Play, Plus, Power, Sparkles, Square, TimerReset, Trash2 } from 'lucide-react';
+import { CalendarClock, MessageSquare, Minus, Monitor, MonitorPlay, Pause, Pencil, Play, Plus, Power, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { MoneyInput, ReceiptButton, RefundModal, useTender } from '../components/money';
 import { timeForAmount, TimeCalculatorButton } from '../components/TimeCalculator';
-import { ErrorBox, Field, Modal, PageHeader, Segmented, StatusBadge } from '../components/ui';
+import { ErrorBox, Field, Modal, PageHeader, Segmented, StatusBadge, PasswordInput } from '../components/ui';
 import { ApiError, del, get, getToken, patch, post } from '../lib/api';
 import { DEVICES, DRIVER_HINT, DRIVER_LABEL, type DriverKey } from '../lib/devices';
 import { useApp, useTick } from '../lib/app-context';
@@ -51,9 +51,15 @@ export function StationsPage() {
   const rooms = useMemo(() => [...new Set((q.data ?? []).map((s) => s.room).filter(Boolean))].sort() as string[], [q.data]);
   const [startFor, setStartFor] = useState<Station | null>(null);
   const [endFor, setEndFor] = useState<Station | null>(null);
-  const [extendFor, setExtendFor] = useState<Station | null>(null);
+  const [extendFor, setExtendFor] = useState<{
+    station: Station;
+    dir: 'add' | 'remove';
+  } | null>(null);
   const [editing, setEditing] = useState<Station | 'new' | null>(null);
-  const [checkIn, setCheckIn] = useState<{ bookingId: string; customerId?: string } | null>(null);
+  const [checkIn, setCheckIn] = useState<{
+    bookingId: string;
+    customerId?: string;
+  } | null>(null);
   const [params, setParams] = useSearchParams();
 
   // Arriving from Bookings → "Check in": open the start dialog for that station with the booking attached.
@@ -62,22 +68,27 @@ export function StationsPage() {
     if (!st || !q.data) return;
     const station = q.data.find((s) => s.id === st);
     if (station && station.liveStatus === 'available') {
-      setCheckIn({ bookingId: params.get('booking') ?? '', customerId: params.get('customer') ?? undefined });
+      setCheckIn({
+        bookingId: params.get('booking') ?? '',
+        customerId: params.get('customer') ?? undefined,
+      });
       setStartFor(station);
     }
     setParams({}, { replace: true });
   }, [params, q.data, setParams]);
 
   const roomOk = (s: Station) => !room || !rooms.includes(room) || (s.room ?? '') === room;
-  const list = (q.data ?? []).filter(roomOk).filter((s) =>
-    filter === 'all'
-      ? true
-      : filter === 'available'
-        ? s.liveStatus === 'available'
-        : filter === 'busy'
-          ? s.liveStatus === 'in_use' || s.liveStatus === 'paused'
-          : s.liveStatus === 'maintenance' || s.liveStatus === 'offline',
-  );
+  const list = (q.data ?? [])
+    .filter(roomOk)
+    .filter((s) =>
+      filter === 'all'
+        ? true
+        : filter === 'available'
+          ? s.liveStatus === 'available'
+          : filter === 'busy'
+            ? s.liveStatus === 'in_use' || s.liveStatus === 'paused'
+            : s.liveStatus === 'maintenance' || s.liveStatus === 'offline',
+    );
 
   return (
     <>
@@ -87,11 +98,7 @@ export function StationsPage() {
         actions={
           <>
             {rooms.length > 0 && (
-              <Segmented
-                value={rooms.includes(room) ? room : ''}
-                onChange={pickRoom}
-                options={[{ value: '', label: 'All rooms' }, ...rooms.map((r) => ({ value: r, label: r }))]}
-              />
+              <Segmented value={rooms.includes(room) ? room : ''} onChange={pickRoom} options={[{ value: '', label: 'All rooms' }, ...rooms.map((r) => ({ value: r, label: r }))]} />
             )}
             <Segmented
               value={filter}
@@ -126,26 +133,37 @@ export function StationsPage() {
       )}
       {groupByRoom(list, rooms.length > 0 && !rooms.includes(room)).map(([title, items]) => (
         <section key={title || '-'} style={{ marginBottom: 18 }}>
-          {title !== null && <h2 className="room-title">{title || 'No room set'} <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>· {items.length}</span></h2>}
-      <div className="station-grid">
-        {items.map((s) => (
-          <StationCard
-            key={s.id}
-            station={s}
-            onStart={() => {
-              setCheckIn(null);
-              setStartFor(s);
-            }}
-            onCheckIn={() => {
-              setCheckIn({ bookingId: s.nextBooking.id, customerId: s.nextBooking.customerId ?? undefined });
-              setStartFor(s);
-            }}
-            onEnd={() => setEndFor(s)}
-            onExtend={() => setExtendFor(s)}
-            onEdit={can('stations.manage') ? () => setEditing(s) : undefined}
-          />
-        ))}
-      </div>
+          {title !== null && (
+            <h2 className="room-title">
+              {title || 'No room set'}{' '}
+              <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>
+                · {items.length}
+              </span>
+            </h2>
+          )}
+          <div className="station-grid">
+            {items.map((s) => (
+              <StationCard
+                key={s.id}
+                station={s}
+                onStart={() => {
+                  setCheckIn(null);
+                  setStartFor(s);
+                }}
+                onCheckIn={() => {
+                  setCheckIn({
+                    bookingId: s.nextBooking.id,
+                    customerId: s.nextBooking.customerId ?? undefined,
+                  });
+                  setStartFor(s);
+                }}
+                onEnd={() => setEndFor(s)}
+                onExtend={() => setExtendFor({ station: s, dir: 'add' })}
+                onReduce={() => setExtendFor({ station: s, dir: 'remove' })}
+                onEdit={can('stations.manage') ? () => setEditing(s) : undefined}
+              />
+            ))}
+          </div>
         </section>
       ))}
       {startFor && (
@@ -160,7 +178,7 @@ export function StationsPage() {
         />
       )}
       {endFor && <EndModal station={endFor} onClose={() => setEndFor(null)} />}
-      {extendFor && <ExtendModal station={extendFor} onClose={() => setExtendFor(null)} />}
+      {extendFor && <ExtendModal station={extendFor.station} startDir={extendFor.dir} onClose={() => setExtendFor(null)} />}
       {editing && <StationForm station={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
   );
@@ -234,13 +252,18 @@ function groupByRoom(list: Station[], split: boolean): [string | null, Station[]
   return [...m.entries()].sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b))).map(([k, v]) => [k, v]);
 }
 
-const PAUSE_LABEL: Record<string, string> = { off: 'screen locked, power off', screen: 'screen locked, TV on', open: 'clock stopped only' };
+const PAUSE_LABEL: Record<string, string> = {
+  off: 'screen locked, power off',
+  screen: 'screen locked, TV on',
+  open: 'clock stopped only',
+};
 
 function StationCard({
   station: s,
   onStart,
   onEnd,
   onExtend,
+  onReduce,
   onEdit,
   onCheckIn,
 }: {
@@ -248,6 +271,7 @@ function StationCard({
   onStart(): void;
   onEnd(): void;
   onExtend(): void;
+  onReduce(): void;
   onEdit?: () => void;
   onCheckIn(): void;
 }) {
@@ -319,7 +343,11 @@ function StationCard({
           </div>
           {remaining != null && (
             <div className="progress">
-              <div style={{ width: `${Math.max(0, Math.min(100, (remaining / sess.allottedSeconds) * 100))}%` }} />
+              <div
+                style={{
+                  width: `${Math.max(0, Math.min(100, (remaining / sess.allottedSeconds) * 100))}%`,
+                }}
+              />
             </div>
           )}
           <div className="station-meta">
@@ -338,9 +366,14 @@ function StationCard({
                 </button>
               )}
               {sess.billingType === 'prepaid' && (
-                <button className="btn btn-sm" onClick={onExtend}>
-                  <TimerReset size={14} /> Extend
-                </button>
+                <>
+                  <button className="btn btn-sm" onClick={onExtend} title="Add time">
+                    <Plus size={14} /> Time
+                  </button>
+                  <button className="btn btn-sm" onClick={onReduce} title="Take time off" aria-label="Take time off">
+                    <Minus size={14} /> Time
+                  </button>
+                </>
               )}
               <button className="btn btn-sm btn-danger" onClick={onEnd}>
                 <Square size={14} /> End
@@ -349,7 +382,9 @@ function StationCard({
           )}
           {pauseMenu && sess.status === 'running' && (
             <div className="pause-menu">
-              <div className="dim" style={{ fontSize: 12 }}>Pause how? The clock stops in every case.</div>
+              <div className="dim" style={{ fontSize: 12 }}>
+                Pause how? The clock stops in every case.
+              </div>
               <button className="btn btn-sm" disabled={op.isPending} onClick={() => op.mutate({ action: 'pause', mode: 'off' })}>
                 <Power size={14} /> Lock screen &amp; switch off
               </button>
@@ -423,7 +458,13 @@ export function CustomerPicker({ value, onChange }: { value: any; onChange(c: an
               type="button"
               key={c.id}
               className="list-item"
-              style={{ background: 'none', border: 0, borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}
+              style={{
+                background: 'none',
+                border: 0,
+                borderBottom: '1px solid var(--border)',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
               onClick={() => onChange(c)}
               disabled={c.status !== 'active'}
             >
@@ -463,7 +504,13 @@ function usePromo(subtotal: number | null) {
     <Field
       label="Promo code"
       hint={
-        !code ? undefined : check.isLoading ? 'Checking…' : check.error ? <span style={{ color: 'var(--danger)' }}>{(check.error as Error).message}</span> : `${check.data?.code}: −${money(discount)}${check.data?.description ? ` · ${check.data.description}` : ''}`
+        !code ? undefined : check.isLoading ? (
+          'Checking…'
+        ) : check.error ? (
+          <span style={{ color: 'var(--danger)' }}>{(check.error as Error).message}</span>
+        ) : (
+          `${check.data?.code}: −${money(discount)}${check.data?.description ? ` · ${check.data.description}` : ''}`
+        )
       }
     >
       <div className="toolbar" style={{ flexWrap: 'nowrap' }}>
@@ -480,22 +527,37 @@ function usePromo(subtotal: number | null) {
       </div>
     </Field>
   );
-  return { ui, code: code && check.data ? code : undefined, discount, pending: !!code && (check.isLoading || !!check.error) };
+  return {
+    ui,
+    code: code && check.data ? code : undefined,
+    discount,
+    pending: !!code && (check.isLoading || !!check.error),
+  };
 }
 
 function StartModal({ station, onClose, bookingId, initialCustomerId }: { station: Station; onClose(): void; bookingId?: string; initialCustomerId?: string }) {
   const { money, toast, can, settings } = useApp();
   const [paidText, setPaidText] = useState('');
   const qc = useQueryClient();
-  const plansQ = useQuery({ queryKey: ['plans'], queryFn: () => get('/api/pricing-plans') });
-  const happyQ = useQuery({ queryKey: ['happy-now', station.id], queryFn: () => get(`/api/happy-hours/current?stationId=${station.id}`) });
+  const plansQ = useQuery({
+    queryKey: ['plans'],
+    queryFn: () => get('/api/pricing-plans'),
+  });
+  const happyQ = useQuery({
+    queryKey: ['happy-now', station.id],
+    queryFn: () => get(`/api/happy-hours/current?stationId=${station.id}`),
+  });
   const plans = useMemo(() => (plansQ.data ?? []).filter((p: any) => p.active && (!p.categoryId || p.categoryId === station.categoryId)), [plansQ.data, station]);
   const [planId, setPlanId] = useState('');
   const plan = plans.find((p: any) => p.id === planId);
   const [billingType, setBillingType] = useState<'prepaid' | 'postpaid'>('prepaid');
   const [minutes, setMinutes] = useState(60);
   const [customer, setCustomer] = useState<any>(null);
-  const preset = useQuery({ queryKey: ['customer', initialCustomerId], queryFn: () => get(`/api/customers/${initialCustomerId}`), enabled: !!initialCustomerId });
+  const preset = useQuery({
+    queryKey: ['customer', initialCustomerId],
+    queryFn: () => get(`/api/customers/${initialCustomerId}`),
+    enabled: !!initialCustomerId,
+  });
   useEffect(() => {
     if (preset.data) setCustomer(preset.data);
   }, [preset.data]);
@@ -519,7 +581,16 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
   const promo = usePromo(billingType === 'prepaid' ? afterPct : null);
   const net = afterPct != null ? afterPct - promo.discount : null;
   const tender = useTender(net ?? 0, { customer });
-  const savedMin = Math.floor((customer?.savedSeconds ?? 0) / 60);
+  const detail = useQuery({
+    queryKey: ['customer', customer?.id],
+    queryFn: () => get(`/api/customers/${customer.id}`),
+    enabled: !!customer?.id,
+  });
+  const savedHere = (detail.data?.savedTime ?? []).filter((t: any) => !t.categoryId || t.categoryId === station.categoryId).reduce((a: number, t: any) => a + t.seconds, 0);
+  const savedElsewhere = Math.floor(((detail.data?.savedSeconds ?? 0) - savedHere) / 60);
+  const savedMin = Math.floor((detail.data ? savedHere : 0) / 60);
+  const [onAccount, setOnAccount] = useState(false);
+  const canAccount = !!customer && can('payments.tab') && billingType === 'prepaid';
   const [useSaved, setUseSaved] = useState(false);
   const [savedUse, setSavedUse] = useState('');
   useEffect(() => {
@@ -541,15 +612,16 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
             bookingId: bookingId ?? null,
           })
         : post('/api/sessions', {
-        stationId: station.id,
-        planId,
-        billingType,
-        customerId: customer?.id ?? null,
-        minutes: plan?.kind === 'time_rate' && billingType === 'prepaid' ? minutes : undefined,
-        promoCode: billingType === 'prepaid' ? promo.code : undefined,
-        bookingId: bookingId ?? null,
-        ...(billingType === 'prepaid' ? tender.payload : {}),
-      }),
+            stationId: station.id,
+            planId,
+            billingType,
+            customerId: customer?.id ?? null,
+            minutes: plan?.kind === 'time_rate' && billingType === 'prepaid' ? minutes : undefined,
+            promoCode: billingType === 'prepaid' ? promo.code : undefined,
+            bookingId: bookingId ?? null,
+            ...(billingType === 'prepaid' && !(canAccount && onAccount) ? tender.payload : {}),
+            ...(canAccount && onAccount ? { payLater: true } : {}),
+          }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stations'] });
       toast('success', `Session started on ${station.name}`);
@@ -566,12 +638,18 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={!plan || m.isPending || (!fromSaved && billingType === 'prepaid' && (!tender.valid || promo.pending))} onClick={() => m.mutate()}>
+          <button
+            className="btn btn-primary"
+            disabled={!plan || m.isPending || (!fromSaved && billingType === 'prepaid' && ((!tender.valid && !(canAccount && onAccount)) || promo.pending))}
+            onClick={() => m.mutate()}
+          >
             <Play size={16} />{' '}
             {fromSaved
               ? `Continue ${formatMinutes(Number(savedUse) > 0 ? Math.min(Number(savedUse), savedMin) : savedMin)} of saved time`
               : billingType === 'prepaid' && net != null
-                ? `Collect ${money(net)} & start`
+                ? canAccount && onAccount
+                  ? `Start · ${money(net)} on account`
+                  : `Collect ${money(net)} & start`
                 : 'Start timer'}
           </button>
         </>
@@ -593,7 +671,10 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
         <select className="select" value={planId} onChange={(e) => setPlanId(e.target.value)}>
           {plans.map((p: any) => (
             <option key={p.id} value={p.id}>
-              {p.name} — {p.kind === 'package' ? `${formatMinutes(p.packageMinutes)} for ${money(p.packagePrice)}` : `${money(p.kind === 'time_rate' && station.hourlyRateOverride != null ? station.hourlyRateOverride : p.ratePerHour)}/h`}
+              {p.name} —{' '}
+              {p.kind === 'package'
+                ? `${formatMinutes(p.packageMinutes)} for ${money(p.packagePrice)}`
+                : `${money(p.kind === 'time_rate' && station.hourlyRateOverride != null ? station.hourlyRateOverride : p.ratePerHour)}/h`}
             </option>
           ))}
         </select>
@@ -613,12 +694,25 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
       {!fromSaved && plan?.kind === 'time_rate' && billingType === 'prepaid' && (
         <Field label="Time" hint={plan.billingUnitMinutes > 1 ? `Multiples of ${plan.billingUnitMinutes} minutes` : undefined}>
           <div className="toolbar">
-            {[30, 60, 90, 120, 180].filter((x) => x % plan.billingUnitMinutes === 0).map((x) => (
-              <button type="button" key={x} className={`btn btn-sm ${minutes === x ? 'btn-primary' : ''}`} onClick={() => setMinutes(x)}>
-                {formatMinutes(x)}
-              </button>
-            ))}
-            <input className="input" style={{ width: 100 }} type="number" min={plan.billingUnitMinutes} step={plan.billingUnitMinutes} value={minutes} onChange={(e) => { setMinutes(Number(e.target.value)); setPaidText(''); }} />
+            {[30, 60, 90, 120, 180]
+              .filter((x) => x % plan.billingUnitMinutes === 0)
+              .map((x) => (
+                <button type="button" key={x} className={`btn btn-sm ${minutes === x ? 'btn-primary' : ''}`} onClick={() => setMinutes(x)}>
+                  {formatMinutes(x)}
+                </button>
+              ))}
+            <input
+              className="input"
+              style={{ width: 100 }}
+              type="number"
+              min={plan.billingUnitMinutes}
+              step={plan.billingUnitMinutes}
+              value={minutes}
+              onChange={(e) => {
+                setMinutes(Number(e.target.value));
+                setPaidText('');
+              }}
+            />
             <span className="muted">min</span>
           </div>
         </Field>
@@ -637,10 +731,11 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
                 }}
               />
             </div>
-            {paidText && (() => {
-              const r = timeForAmount(parseMoney(paidText, settings.currencyMinorUnits) ?? 0, plan, rate);
-              return <span className="muted">{r && r.minutes > 0 ? `= ${formatMinutes(r.minutes)}${r.change > 0 ? ` (${money(r.change)} change)` : ''}` : 'Not enough for any time'}</span>;
-            })()}
+            {paidText &&
+              (() => {
+                const r = timeForAmount(parseMoney(paidText, settings.currencyMinorUnits) ?? 0, plan, rate);
+                return <span className="muted">{r && r.minutes > 0 ? `= ${formatMinutes(r.minutes)}${r.change > 0 ? ` (${money(r.change)} change)` : ''}` : 'Not enough for any time'}</span>;
+              })()}
           </div>
         </Field>
       )}
@@ -650,8 +745,7 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
       {savedMin > 0 && (
         <div className="saved-time-box">
           <label className="check">
-            <input type="checkbox" checked={useSaved} onChange={(e) => setUseSaved(e.target.checked)} /> Continue from {customer.fullName}'s saved time —{' '}
-            <b>{formatMinutes(savedMin)} left</b>
+            <input type="checkbox" checked={useSaved} onChange={(e) => setUseSaved(e.target.checked)} /> Continue from {customer.fullName}'s saved time — <b>{formatMinutes(savedMin)} left</b>
           </label>
           {fromSaved && (
             <div className="toolbar">
@@ -689,47 +783,99 @@ function StartModal({ station, onClose, bookingId, initialCustomerId }: { statio
           <span>{money(net)}</span>
         </div>
       )}
-      {!fromSaved && billingType === 'prepaid' && tender.ui}
+      {!fromSaved && canAccount && net != null && net > 0 && <AccountChoice customer={detail.data ?? customer} value={onAccount} onChange={setOnAccount} amount={net} />}
+      {!fromSaved && billingType === 'prepaid' && !(canAccount && onAccount) && tender.ui}
+      {customer && savedMin === 0 && savedElsewhere > 0 && (
+        <div className="hint">
+          {customer.fullName} has {formatMinutes(savedElsewhere)} saved for another station type. To play it here, change it on their customer page (Saved time → Change type).
+        </div>
+      )}
       {!fromSaved && billingType === 'postpaid' && (
         <div className="hint">
-          The customer pays when the session ends, based on the time used{pct > 0 ? ` (${pct}% off — ${pctSource})` : ''}. Promo codes are entered at checkout.
+          The customer pays when the session ends, based on the time used
+          {pct > 0 ? ` (${pct}% off — ${pctSource})` : ''}. Promo codes are entered at checkout.
         </div>
       )}
     </Modal>
   );
 }
 
-function ExtendModal({ station, onClose }: { station: Station; onClose(): void }) {
-  const { money, toast } = useApp();
+function ExtendModal({ station, startDir = 'add', onClose }: { station: Station; startDir?: 'add' | 'remove'; onClose(): void }) {
+  const [dir, setDir] = useState<'add' | 'remove'>(startDir);
+  return dir === 'remove' ? <ReduceModal station={station} onAdd={() => setDir('add')} onClose={onClose} /> : <AddTimeModal station={station} onRemove={() => setDir('remove')} onClose={onClose} />;
+}
+
+const DirSwitch = ({ value, onChange }: { value: 'add' | 'remove'; onChange(v: 'add' | 'remove'): void }) => (
+  <Segmented
+    value={value}
+    onChange={onChange}
+    options={[
+      { value: 'add', label: '+ Add time' },
+      { value: 'remove', label: '− Take time off' },
+    ]}
+  />
+);
+
+function AddTimeModal({ station, onRemove, onClose }: { station: Station; onRemove(): void; onClose(): void }) {
+  const { money, toast, can } = useApp();
   const qc = useQueryClient();
   const sess = station.session;
   const [minutes, setMinutes] = useState(30);
+  const [other, setOther] = useState<any>(null);
+  const [pickOther, setPickOther] = useState(false);
+  const accountId: string | null = other?.id ?? sess.customerId ?? null;
+  const account = useQuery({
+    queryKey: ['customer', accountId],
+    queryFn: () => get(`/api/customers/${accountId}`),
+    enabled: !!accountId,
+  });
+  const acc = account.data;
+  const accName = other?.fullName ?? sess.customerName ?? 'the customer';
+  const [source, setSource] = useState<'pay' | 'saved' | 'tab'>('pay');
+  const savedHere = Math.floor((acc?.savedTime ?? []).filter((t: any) => !t.categoryId || t.categoryId === station.categoryId).reduce((a: number, t: any) => a + t.seconds, 0) / 60);
   const gross = priceForMinutes(Math.max(0, minutes || 0), sess.rate.ratePerHour);
-  const net = gross - percentOff(gross, sess.discountPercent);
-  const tender = useTender(net, { customer: sess.customerId ? { id: sess.customerId } : null });
+  const net = source === 'saved' ? 0 : gross - percentOff(gross, sess.discountPercent);
+  const tender = useTender(net, {
+    customer: accountId ? { id: accountId, balance: acc?.balance } : null,
+  });
+  useEffect(() => {
+    if (!accountId && source !== 'pay') setSource('pay');
+  }, [accountId, source]);
   const m = useMutation({
-    mutationFn: () => post(`/api/sessions/${sess.id}/extend`, { minutes, ...tender.payload }),
+    mutationFn: () =>
+      post(`/api/sessions/${sess.id}/extend`, {
+        minutes,
+        source,
+        accountId: accountId ?? undefined,
+        ...(source === 'pay' ? tender.payload : {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stations'] });
-      toast('success', `Added ${formatMinutes(minutes)} to ${station.name}`);
+      if (accountId) qc.invalidateQueries({ queryKey: ['customer', accountId] });
+      toast(
+        'success',
+        `Added ${formatMinutes(minutes)} to ${station.name}${source === 'saved' ? ` from ${accName}'s saved time` : source === 'tab' ? ` · ${money(net)} on ${accName}'s account` : ''}`,
+      );
       onClose();
     },
   });
+  const ready = minutes > 0 && (source === 'pay' ? tender.valid : source === 'saved' ? savedHere >= minutes : true);
   return (
     <Modal
-      title={`Extend — ${station.name}`}
+      title={`Add time — ${station.name}`}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={m.isPending || !(minutes > 0) || !tender.valid} onClick={() => m.mutate()}>
-            Collect {money(net)} & extend
+          <button className="btn btn-primary" disabled={m.isPending || !ready} onClick={() => m.mutate()}>
+            {source === 'pay' ? `Collect ${money(net)} & add time` : source === 'saved' ? `Add ${formatMinutes(minutes)} from saved time` : `Add · ${money(net)} on account`}
           </button>
         </>
       }
     >
+      <DirSwitch value="add" onChange={(v) => v === 'remove' && onRemove()} />
       <ErrorBox error={m.error} />
       <Field label="Add time">
         <div className="toolbar">
@@ -741,11 +887,215 @@ function ExtendModal({ station, onClose }: { station: Station; onClose(): void }
           <input className="input" style={{ width: 100 }} type="number" min={1} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} />
         </div>
       </Field>
-      <div className="total-row">
-        <span>To collect{sess.discountPercent > 0 ? ` (${sess.discountPercent}% off)` : ''}</span>
-        <span>{money(net)}</span>
+      <Field label="Take it from" hint={!sess.customerId && !other ? 'Walk-in session: choose a customer to use their wallet, saved time or account.' : undefined}>
+        {pickOther ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <CustomerPicker value={other} onChange={setOther} />
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{ alignSelf: 'flex-start' }}
+              onClick={() => {
+                setOther(null);
+                setPickOther(false);
+              }}
+            >
+              {sess.customerId ? `Back to ${sess.customerName}` : 'No customer (cash / MoMo only)'}
+            </button>
+          </div>
+        ) : (
+          <div className="toolbar">
+            <span>
+              {sess.customerId ? (
+                <>
+                  <b>{sess.customerName}</b>'s account
+                </>
+              ) : (
+                'Walk-in (no account)'
+              )}
+            </span>
+            <button type="button" className="btn btn-sm" onClick={() => setPickOther(true)}>
+              {sess.customerId ? 'Use another customer' : 'Choose a customer'}
+            </button>
+          </div>
+        )}
+      </Field>
+      {accountId && (
+        <Segmented
+          value={source}
+          onChange={setSource}
+          options={[
+            { value: 'pay', label: 'Pay now' },
+            {
+              value: 'saved',
+              label: `Saved time (${formatMinutes(savedHere)})`,
+            },
+            ...(can('payments.tab') ? [{ value: 'tab' as const, label: 'Put on account' }] : []),
+          ]}
+        />
+      )}
+      {source === 'saved' && savedHere < minutes && (
+        <div className="error-text">
+          {accName} has only {formatMinutes(savedHere)} of saved time for this station.
+        </div>
+      )}
+      {source === 'tab' && acc && <AccountInfo customer={acc} amount={net} />}
+      {source !== 'saved' && (
+        <div className="total-row">
+          <span>
+            {source === 'tab' ? 'Goes on the account' : 'To collect'}
+            {sess.discountPercent > 0 ? ` (${sess.discountPercent}% off)` : ''}
+          </span>
+          <span>{money(net)}</span>
+        </div>
+      )}
+      {source === 'pay' && tender.ui}
+    </Modal>
+  );
+}
+
+/** Takes minutes off a running fixed-time session: back to saved time, money back, or just shorter. */
+function ReduceModal({ station, onAdd, onClose }: { station: Station; onAdd(): void; onClose(): void }) {
+  const { money, toast, can, serverOffsetMs } = useApp();
+  const qc = useQueryClient();
+  useTick();
+  const sess = station.session;
+  const live = useQuery({
+    queryKey: ['session', sess.id],
+    queryFn: () => get(`/api/sessions/${sess.id}`),
+    refetchInterval: 10_000,
+  });
+  const d = live.data ?? sess;
+  const active = liveSeconds(d, serverOffsetMs);
+  const left = d.allottedSeconds != null ? d.allottedSeconds - active : 0;
+  const most = Math.max(0, Math.floor((left - 60) / 60));
+  const [minutes, setMinutes] = useState(15);
+  const [back, setBack] = useState<'saved' | 'refund' | 'keep'>(sess.customerId ? 'saved' : can('payments.refund') ? 'refund' : 'keep');
+  const [method, setMethod] = useState<'' | 'cash' | 'mobile_money'>('');
+  const [reason, setReason] = useState('');
+  // Same sum as the server: saved time goes back as time; bought time is worth its share of the price.
+  const secs = Math.max(0, minutes || 0) * 60;
+  const fromSaved = Math.min(secs, d.fromSavedSeconds ?? 0);
+  const boughtTotal = (d.allottedSeconds ?? 0) - (d.fromSavedSeconds ?? 0);
+  const cut = boughtTotal > 0 ? Math.round((d.netAmount * (secs - fromSaved)) / boughtTotal) : 0;
+  const newNet = d.netAmount - cut;
+  const giveBack = Math.max(0, d.paidAmount - (d.refundedAmount ?? 0) - newNet);
+  const owedLess = Math.max(0, d.netAmount - d.paidAmount) - Math.max(0, newNet - d.paidAmount);
+  const m = useMutation({
+    mutationFn: () =>
+      post(`/api/sessions/${sess.id}/reduce`, {
+        minutes,
+        back,
+        method: back === 'refund' && method ? method : undefined,
+        reason: reason || null,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stations'] });
+      qc.invalidateQueries({ queryKey: ['session', sess.id] });
+      if (sess.customerId) qc.invalidateQueries({ queryKey: ['customer', sess.customerId] });
+      toast(
+        'success',
+        `Took ${formatMinutes(minutes)} off ${station.name}${
+          back === 'saved'
+            ? ` · back on ${sess.customerName}'s saved time`
+            : back === 'refund' && giveBack > 0
+              ? ` · give back ${money(giveBack)}`
+              : back === 'refund' && owedLess > 0
+                ? ` · ${money(owedLess)} less to pay`
+                : ''
+        }`,
+      );
+      onClose();
+    },
+  });
+  const ready = minutes > 0 && minutes <= most && (back !== 'saved' || !!sess.customerId) && (back !== 'refund' || giveBack === 0 || can('payments.refund'));
+  return (
+    <Modal
+      title={`Take time off — ${station.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={m.isPending || !ready} onClick={() => m.mutate()}>
+            {back === 'refund' && giveBack > 0 ? `Take off ${formatMinutes(minutes || 0)} & give back ${money(giveBack)}` : `Take off ${formatMinutes(minutes || 0)}`}
+          </button>
+        </>
+      }
+    >
+      <DirSwitch value="remove" onChange={(v) => v === 'add' && onAdd()} />
+      <ErrorBox error={m.error} />
+      <div className="hint">
+        {formatDuration(Math.max(0, left))} left. You can take off up to <b>{formatMinutes(most)}</b> (1 minute must stay — to stop now, use End).
       </div>
-      {tender.ui}
+      <Field label="Take off">
+        <div className="toolbar">
+          {[5, 15, 30, 60]
+            .filter((x) => x <= most)
+            .map((x) => (
+              <button type="button" key={x} className={`btn btn-sm ${minutes === x ? 'btn-primary' : ''}`} onClick={() => setMinutes(x)}>
+                −{formatMinutes(x)}
+              </button>
+            ))}
+          <input className="input" style={{ width: 100 }} type="number" min={1} max={most} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} />
+        </div>
+      </Field>
+      {minutes > most && <div className="error-text">Only {formatMinutes(most)} can be taken off.</div>}
+      <Field label="What happens to that time">
+        <Segmented
+          value={back}
+          onChange={setBack}
+          options={[
+            ...(sess.customerId ? [{ value: 'saved' as const, label: 'Back on saved time' }] : []),
+            {
+              value: 'refund' as const,
+              label: d.paidAmount < d.netAmount ? 'Lower the bill' : 'Give money back',
+            },
+            { value: 'keep' as const, label: 'Just shorten' },
+          ]}
+        />
+      </Field>
+      {back === 'saved' && (
+        <div className="hint">
+          {formatMinutes(minutes || 0)} goes on <b>{sess.customerName}</b>'s saved time to play another day. No money changes hands.
+        </div>
+      )}
+      {back === 'refund' && (
+        <>
+          {fromSaved > 0 && <div className="hint">{formatMinutes(Math.floor(fromSaved / 60))} came from saved time and goes back on it.</div>}
+          {owedLess > 0 && (
+            <div className="total-row">
+              <span>Less to pay later</span>
+              <span>{money(owedLess)}</span>
+            </div>
+          )}
+          <div className="total-row">
+            <span>Give back</span>
+            <span>{money(giveBack)}</span>
+          </div>
+          {giveBack > 0 && (
+            <>
+              {!can('payments.refund') && <div className="error-text">You need the refund permission to give money back — ask a manager.</div>}
+              <Field label="Give it back as" hint="Money paid from the wallet always goes back to the wallet.">
+                <Segmented
+                  value={method}
+                  onChange={setMethod}
+                  options={[
+                    { value: '', label: 'As they paid' },
+                    { value: 'cash', label: 'Cash' },
+                    { value: 'mobile_money', label: 'MoMo' },
+                  ]}
+                />
+              </Field>
+            </>
+          )}
+        </>
+      )}
+      {back === 'keep' && <div className="hint">The session ends earlier. The price stays the same and nothing is given back.</div>}
+      <Field label="Reason (optional)">
+        <input className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="e.g. customer has to leave early" />
+      </Field>
     </Modal>
   );
 }
@@ -754,7 +1104,11 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
   const { money, toast, can, settings } = useApp();
   const qc = useQueryClient();
   const sess = station.session;
-  const quote = useQuery({ queryKey: ['session', sess.id], queryFn: () => get(`/api/sessions/${sess.id}`), refetchInterval: 5000 });
+  const quote = useQuery({
+    queryKey: ['session', sess.id],
+    queryFn: () => get(`/api/sessions/${sess.id}`),
+    refetchInterval: 5000,
+  });
   const d = quote.data;
   const [done, setDone] = useState<any>(null);
   const postpaid = d?.billingType === 'postpaid';
@@ -762,11 +1116,21 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
   const [manualText, setManualText] = useState('');
   const [reason, setReason] = useState('');
   const [payLater, setPayLater] = useState(false);
+  const [endAccount, setEndAccount] = useState<any>(null);
+  const tabCustomerId: string | null = d?.customerId ?? endAccount?.id ?? null;
+  const tabCustomer = useQuery({
+    queryKey: ['customer', tabCustomerId],
+    queryFn: () => get(`/api/customers/${tabCustomerId}`),
+    enabled: !!tabCustomerId && payLater,
+  });
   const canSave = d?.billingType === 'prepaid' && !!d?.customerId && d.remainingSeconds >= 60;
   const [saveRemaining, setSaveRemaining] = useState(true);
   const manual = manualText.trim() ? parseMoney(manualText, settings.currencyMinorUnits) : 0;
   const owed = d ? Math.max(0, d.liveNetAmount - promo.discount - (manual ?? 0) - d.paidAmount) : 0;
-  const tender = useTender(owed, { customer: d?.customerId ? { id: d.customerId } : null, allowPartial: payLater });
+  const tender = useTender(owed, {
+    customer: d?.customerId ? { id: d.customerId } : null,
+    allowPartial: payLater,
+  });
   const usePartial = payLater && tender.total > 0 && (tender.payload.payments?.length ?? 0) > 0;
   const manualInvalid = manual == null || manual < 0 || (manual > 0 && !reason.trim());
 
@@ -778,12 +1142,16 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
         manualDiscount: manual && manual > 0 ? manual : undefined,
         discountReason: manual && manual > 0 ? reason : undefined,
         payLater: payLater || undefined,
+        accountId: payLater && !d?.customerId && endAccount ? endAccount.id : undefined,
         saveRemaining: canSave && saveRemaining ? true : undefined,
       }),
     onSuccess: (r: any) => {
       qc.invalidateQueries({ queryKey: ['stations'] });
       qc.invalidateQueries({ queryKey: ['session', sess.id] });
-      toast('success', `${station.name} ended · ${money(r.netAmount)}${r.onTab ? ` · ${money(r.balanceDue)} on tab` : ''}${r.savedSeconds ? ` · ${formatMinutes(Math.floor(r.savedSeconds / 60))} saved to the account` : ''}`);
+      toast(
+        'success',
+        `${station.name} ended · ${money(r.netAmount)}${r.onTab ? ` · ${money(r.balanceDue)} on tab` : ''}${r.savedSeconds ? ` · ${formatMinutes(Math.floor(r.savedSeconds / 60))} saved to the account` : ''}`,
+      );
       if (r.customerId) qc.invalidateQueries({ queryKey: ['customer', r.customerId] });
       setDone(r);
     },
@@ -799,9 +1167,13 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-danger" disabled={!d || m.isPending || promo.pending || manualInvalid || (!payLater && !tender.valid) || (payLater && usePartial && !tender.valid)} onClick={() => m.mutate()}>
+          <button
+            className="btn btn-danger"
+            disabled={!d || m.isPending || promo.pending || manualInvalid || (!payLater && !tender.valid) || (payLater && usePartial && !tender.valid) || (payLater && !tabCustomerId)}
+            onClick={() => m.mutate()}
+          >
             <Square size={16} />{' '}
-            {owed <= 0 ? 'End session' : payLater ? (usePartial ? `Collect ${money(tender.total)}, rest on tab` : `End · ${money(owed)} on tab`) : `Collect ${money(owed)} & end`}
+            {owed <= 0 ? 'End session' : payLater ? (usePartial ? `Collect ${money(tender.total)}, rest on account` : `End · ${money(owed)} on account`) : `Collect ${money(owed)} & end`}
           </button>
         </>
       }
@@ -827,7 +1199,9 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
           <dd>{money(d.liveGrossAmount)}</dd>
           {d.discountPercent > 0 && (
             <>
-              <dt>{d.happyHourId ? 'Happy hour' : 'Member discount'} ({d.discountPercent}%)</dt>
+              <dt>
+                {d.happyHourId ? 'Happy hour' : 'Member discount'} ({d.discountPercent}%)
+              </dt>
               <dd>−{money(d.billingType === 'postpaid' ? d.liveGrossAmount - d.liveNetAmount : d.discountAmount - d.promoDiscount)}</dd>
             </>
           )}
@@ -870,12 +1244,28 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
           <span>{money(owed)}</span>
         </div>
       )}
-      {owed > 0 && can('payments.tab') && d?.customerId && (
-        <label className="check">
-          <input type="checkbox" checked={payLater} onChange={(e) => setPayLater(e.target.checked)} /> Pay later — put the balance on {sess.customerName ?? 'the customer'}'s tab (within their credit limit)
-        </label>
+      {owed > 0 && can('payments.tab') && (
+        <Field label="Did they pay?">
+          <Segmented
+            value={payLater ? 'later' : 'now'}
+            onChange={(v) => setPayLater(v === 'later')}
+            options={[
+              { value: 'now', label: 'Paying now' },
+              {
+                value: 'later',
+                label: `Put on ${sess.customerName ? `${sess.customerName.split(' ')[0]}'s` : 'an'} account`,
+              },
+            ]}
+          />
+        </Field>
       )}
-      {owed > 0 && payLater && <div className="hint">Optionally take part of it now below; leave the amount blank to put everything on the tab.</div>}
+      {owed > 0 && payLater && !d?.customerId && (
+        <Field label="Whose account?" hint="Walk-in session: choose the customer who will pay later.">
+          <CustomerPicker value={endAccount} onChange={setEndAccount} />
+        </Field>
+      )}
+      {owed > 0 && payLater && tabCustomer.data && <AccountInfo customer={tabCustomer.data} amount={owed} />}
+      {owed > 0 && payLater && <div className="hint">Optionally take part of it now below; leave the amount blank to put everything on the account.</div>}
       {owed > 0 && tender.ui}
       {canSave && (
         <label className="check saved-time-box">
@@ -892,7 +1282,10 @@ function EndModal({ station, onClose }: { station: Station; onClose(): void }) {
 function EndDone({ station, session, onClose }: { station: Station; session: any; onClose(): void }) {
   const { money, can } = useApp();
   const [refunding, setRefunding] = useState(false);
-  const detail = useQuery({ queryKey: ['session', session.id], queryFn: () => get(`/api/sessions/${session.id}`) });
+  const detail = useQuery({
+    queryKey: ['session', session.id],
+    queryFn: () => get(`/api/sessions/${session.id}`),
+  });
   const s = detail.data ?? session;
   return (
     <Modal
@@ -960,7 +1353,11 @@ function PlugFinder({ onPick, onClose }: { onPick(p: FoundPlug): void; onClose()
     scan.mutate('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const label = { tasmota: 'Tasmota', shelly_gen1: 'Shelly Gen 1', shelly_gen2: 'Shelly Plus / Gen 2–3' } as const;
+  const label = {
+    tasmota: 'Tasmota',
+    shelly_gen1: 'Shelly Gen 1',
+    shelly_gen2: 'Shelly Plus / Gen 2–3',
+  } as const;
   return (
     <div className="full card" style={{ padding: 12 }}>
       <div className="toolbar" style={{ marginBottom: 8 }}>
@@ -981,7 +1378,15 @@ function PlugFinder({ onPick, onClose }: { onPick(p: FoundPlug): void; onClose()
       )}
       {!scan.isPending &&
         scan.data?.plugs.map((p) => (
-          <div key={p.ip} className="toolbar" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', padding: '6px 0' }}>
+          <div
+            key={p.ip}
+            className="toolbar"
+            style={{
+              justifyContent: 'space-between',
+              borderTop: '1px solid var(--border)',
+              padding: '6px 0',
+            }}
+          >
             <span style={{ fontSize: 13 }}>
               <strong>{p.name}</strong> · <span className="mono">{p.ip}</span> · {label[p.driver]}
               {p.model ? ` · ${p.model}` : ''}
@@ -997,13 +1402,20 @@ function PlugFinder({ onPick, onClose }: { onPick(p: FoundPlug): void; onClose()
   );
 }
 
-const SECRET_LABEL = { password: 'hasPassword', deviceKey: 'hasDeviceKey', token: 'hasToken', authHeader: 'hasAuthHeader' } as const;
+const SECRET_LABEL = {
+  password: 'hasPassword',
+  deviceKey: 'hasDeviceKey',
+  token: 'hasToken',
+  authHeader: 'hasAuthHeader',
+} as const;
 
 /** Pair a PC / Android TV screen app with this station, see its status, or unpair it. */
 function ScreenPairing({ station }: { station: Station }) {
   const qc = useQueryClient();
   const { toast } = useApp();
-  const code = useMutation({ mutationFn: () => post(`/api/stations/${station.id}/agent-code`) });
+  const code = useMutation({
+    mutationFn: () => post(`/api/stations/${station.id}/agent-code`),
+  });
   const unpair = useMutation({
     mutationFn: () => del(`/api/stations/${station.id}/agent`),
     onSuccess: () => {
@@ -1025,8 +1437,7 @@ function ScreenPairing({ station }: { station: Station }) {
           </span>
         ) : (
           <span className="dim" style={{ fontSize: 13 }}>
-            No screen app paired. Install ZENAA Station (Windows) or ZENAA TV (Android TV) from Integrations → Station screen apps, or send the timer to a
-            jailbroken PS4/PS5 below.
+            No screen app paired. Install ZENAA Station (Windows) or ZENAA TV (Android TV) from Integrations → Station screen apps, or send the timer to a jailbroken PS4/PS5 below.
           </span>
         )}
         <div className="spacer" />
@@ -1045,8 +1456,12 @@ function ScreenPairing({ station }: { station: Station }) {
           <div className="dim" style={{ fontSize: 12 }}>
             On the PC or TV app, enter this server address and code (valid 10 minutes, one use):
           </div>
-          <div className="mono" style={{ fontSize: 13 }}>{window.location.origin}</div>
-          <div className="mono" style={{ fontSize: 40, fontWeight: 800, letterSpacing: '0.2em' }}>{code.data.code}</div>
+          <div className="mono" style={{ fontSize: 13 }}>
+            {window.location.origin}
+          </div>
+          <div className="mono" style={{ fontSize: 40, fontWeight: 800, letterSpacing: '0.2em' }}>
+            {code.data.code}
+          </div>
         </div>
       )}
       <ConsoleSender station={station} />
@@ -1083,7 +1498,13 @@ function ConsoleSender({ station }: { station: Station }) {
     }
   };
   const push = useMutation({
-    mutationFn: () => post(`/api/stations/${station.id}/console-push`, { platform: f.platform, host: f.host.trim(), port: Number(f.port) || 9021, serverUrl: f.serverUrl.trim() }),
+    mutationFn: () =>
+      post(`/api/stations/${station.id}/console-push`, {
+        platform: f.platform,
+        host: f.host.trim(),
+        port: Number(f.port) || 9021,
+        serverUrl: f.serverUrl.trim(),
+      }),
     onSuccess: () => {
       remember();
       qc.invalidateQueries({ queryKey: ['stations'] });
@@ -1092,7 +1513,10 @@ function ConsoleSender({ station }: { station: Station }) {
   });
   const download = useMutation({
     mutationFn: async () => {
-      const q = new URLSearchParams({ platform: f.platform, serverUrl: f.serverUrl.trim() });
+      const q = new URLSearchParams({
+        platform: f.platform,
+        serverUrl: f.serverUrl.trim(),
+      });
       const res = await fetch(`/api/stations/${station.id}/console-payload?${q}`, { headers: { authorization: `Bearer ${getToken() ?? ''}` } });
       if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.message ?? `Download failed (${res.status})`);
       const blob = await res.blob();
@@ -1112,15 +1536,23 @@ function ConsoleSender({ station }: { station: Station }) {
       </button>
     );
   return (
-    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div
+      style={{
+        borderTop: '1px solid var(--border)',
+        paddingTop: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
       <strong style={{ fontSize: 13 }}>Console timer (jailbroken PS4 / PS5)</strong>
       <div className="dim" style={{ fontSize: 12 }}>
-        Shows "Game on", time-left reminders, staff messages and "Time is up" as PlayStation notifications over the game. The console must be jailbroken with an ELF
-        loader running (PS5: etaHEN / elfldr, PS4: GoldHEN + elfldr). Retail consoles cannot run it — use ZENAA TV or a smart plug instead. Guide: Help → 16.
+        Shows "Game on", time-left reminders, staff messages and "Time is up" as PlayStation notifications over the game. The console must be jailbroken with an ELF loader running (PS5: etaHEN /
+        elfldr, PS4: GoldHEN + elfldr). Retail consoles cannot run it — use ZENAA TV or a smart plug instead. Guide: Help → 16.
       </div>
       <div className="alert alert-info" style={{ fontSize: 13 }}>
-        Easiest: on the console's own web browser open <b className="mono">{(isLocal ? 'http://<server-ip>:8080' : origin) + '/ps'}</b>, pick this station once, type your staff
-        PIN and press Send. It detects the console and remembers everything — after a restart it is just PIN → Send. No internet needed.
+        Easiest: on the console's own web browser open <b className="mono">{(isLocal ? 'http://<server-ip>:8080' : origin) + '/ps'}</b>, pick this station once, type your staff PIN and press Send. It
+        detects the console and remembers everything — after a restart it is just PIN → Send. No internet needed.
       </div>
       <div className="form-grid">
         <Field label="Console">
@@ -1139,7 +1571,10 @@ function ConsoleSender({ station }: { station: Station }) {
         <Field label="ELF loader port" hint="9021 for elfldr / etaHEN (default)">
           <input className="input mono" inputMode="numeric" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value.replace(/\D/g, '') })} />
         </Field>
-        <Field label="ZENAA address the console uses" hint={isLocal ? 'You opened ZENAA as localhost/https: type the server PC network address, e.g. http://192.168.1.10:8080' : 'This server, as seen on the network'}>
+        <Field
+          label="ZENAA address the console uses"
+          hint={isLocal ? 'You opened ZENAA as localhost/https: type the server PC network address, e.g. http://192.168.1.10:8080' : 'This server, as seen on the network'}
+        >
           <input className="input mono" placeholder="http://192.168.1.10:8080" value={f.serverUrl} onChange={(e) => setF({ ...f, serverUrl: e.target.value })} />
         </Field>
       </div>
@@ -1162,8 +1597,15 @@ function ConsoleSender({ station }: { station: Station }) {
 function StationForm({ station, onClose }: { station: Station | null; onClose(): void }) {
   const { settings, toast, can } = useApp();
   const qc = useQueryClient();
-  const cats = useQuery({ queryKey: ['categories'], queryFn: () => get('/api/station-categories') });
-  const ewelink = useQuery({ queryKey: ['ewelink'], queryFn: () => get('/api/integrations/ewelink'), staleTime: 60_000 });
+  const cats = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => get('/api/station-categories'),
+  });
+  const ewelink = useQuery({
+    queryKey: ['ewelink'],
+    queryFn: () => get('/api/integrations/ewelink'),
+    staleTime: 60_000,
+  });
   const pc = station?.powerConfig ?? {};
   const [f, setF] = useState({
     code: station?.code ?? '',
@@ -1201,9 +1643,20 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
   const d = f.powerDriver;
   const powerConfig = () => {
     const v = (x: string) => x.trim() || undefined;
-    const base: Record<string, unknown> = { host: v(f.host), channel: f.channel.trim() ? Number(f.channel) : undefined };
-    if (d === 'sonoff_lan' || d === 'sonoff_diy' || d === 'ewelink_cloud') Object.assign(base, { deviceId: v(f.deviceId), deviceKey: d === 'sonoff_lan' ? v(f.deviceKey) : undefined });
-    if (d === 'tasmota' || d === 'shelly_gen1' || d === 'esphome') Object.assign(base, { username: v(f.username), password: f.password || undefined });
+    const base: Record<string, unknown> = {
+      host: v(f.host),
+      channel: f.channel.trim() ? Number(f.channel) : undefined,
+    };
+    if (d === 'sonoff_lan' || d === 'sonoff_diy' || d === 'ewelink_cloud')
+      Object.assign(base, {
+        deviceId: v(f.deviceId),
+        deviceKey: d === 'sonoff_lan' ? v(f.deviceKey) : undefined,
+      });
+    if (d === 'tasmota' || d === 'shelly_gen1' || d === 'esphome')
+      Object.assign(base, {
+        username: v(f.username),
+        password: f.password || undefined,
+      });
     if (d === 'esphome' || d === 'home_assistant') base.entityId = v(f.entityId);
     if (d === 'home_assistant') base.token = v(f.token);
     if (d === 'ewelink_cloud') base.host = undefined;
@@ -1226,7 +1679,13 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
   const [testResult, setTestResult] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
   const test = useMutation({
-    mutationFn: (action: 'status' | 'on' | 'off') => post('/api/power/test', { driver: d, config: powerConfig(), action, stationId: station?.id }),
+    mutationFn: (action: 'status' | 'on' | 'off') =>
+      post('/api/power/test', {
+        driver: d,
+        config: powerConfig(),
+        action,
+        stationId: station?.id,
+      }),
     onSuccess: (r: any) => setTestResult(r.ok ? (r.note ? `✓ ${r.note}` : `✓ Connected — the plug is ${r.state.toUpperCase()}`) : `✗ ${r.error}`),
     onError: (e: Error) => setTestResult(`✗ ${e.message}`),
   });
@@ -1247,7 +1706,11 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
         powerDriver: d,
         powerConfig: d === 'none' ? null : powerConfig(),
         room: f.room.trim() || null,
-        vncConfig: { host: f.vncHost.trim(), port: Number(f.vncPort) || 5900, password: f.vncPassword || undefined },
+        vncConfig: {
+          host: f.vncHost.trim(),
+          port: Number(f.vncPort) || 5900,
+          password: f.vncPassword || undefined,
+        },
       };
       return station ? patch(`/api/stations/${station.id}`, body) : post('/api/stations', body);
     },
@@ -1290,7 +1753,11 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
               className="btn btn-ghost"
               style={{ color: 'var(--danger)', marginRight: 'auto' }}
               disabled={remove.isPending}
-              onClick={() => window.confirm(`Delete ${station.name} (${station.code})?\n\nA station that was never used is removed completely. One with past sessions is hidden, and its history stays in reports.`) && remove.mutate()}
+              onClick={() =>
+                window.confirm(
+                  `Delete ${station.name} (${station.code})?\n\nA station that was never used is removed completely. One with past sessions is hidden, and its history stays in reports.`,
+                ) && remove.mutate()
+              }
             >
               <Trash2 size={15} /> Delete station
             </button>
@@ -1361,18 +1828,20 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
         <MonitorPlay size={16} /> Remote view (VNC)
       </h3>
       <p className="dim" style={{ fontSize: 13, marginTop: 0 }}>
-        See and control this station's screen from ZENAA. Install a VNC server on the station computer (TightVNC or UltraVNC; Android TV: droidVNC-NG) and set a
-        password there. Help → 22.
+        See and control this station's screen from ZENAA. Install a VNC server on the station computer (TightVNC or UltraVNC; Android TV: droidVNC-NG) and set a password there. Help → 22.
       </p>
       <div className="form-grid">
-        <Field label="Computer address" hint={station?.agentInfo?.ip ? `Blank = the address its ZENAA screen app reports (${String(station.agentInfo.ip).replace('::ffff:', '')})` : 'e.g. 192.168.1.21 — reserve it in your router'}>
+        <Field
+          label="Computer address"
+          hint={station?.agentInfo?.ip ? `Blank = the address its ZENAA screen app reports (${String(station.agentInfo.ip).replace('::ffff:', '')})` : 'e.g. 192.168.1.21 — reserve it in your router'}
+        >
           <input className="input mono" value={f.vncHost} onChange={set('vncHost')} placeholder={station?.agentInfo?.ip ? String(station.agentInfo.ip).replace('::ffff:', '') : '192.168.1.21'} />
         </Field>
         <Field label="Port">
           <input className="input" type="number" min={1} max={65535} value={f.vncPort} onChange={set('vncPort')} />
         </Field>
         <Field label="VNC password" hint={station?.vncConfig?.hasPassword ? 'Saved — leave blank to keep it' : 'The password set in the VNC server'}>
-          <input className="input" type="password" autoComplete="new-password" value={f.vncPassword} onChange={set('vncPassword')} />
+          <PasswordInput className="input" autoComplete="new-password" value={f.vncPassword} onChange={set('vncPassword')} />
         </Field>
       </div>
       <h3 className="section-title">
@@ -1403,7 +1872,10 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
           </select>
         </Field>
         {needsHost && (
-          <Field label={d === 'home_assistant' ? 'Home Assistant address' : 'Device IP address'} hint={d === 'home_assistant' ? 'e.g. http://192.168.1.20:8123' : 'Reserve this address in your router (DHCP reservation)'}>
+          <Field
+            label={d === 'home_assistant' ? 'Home Assistant address' : 'Device IP address'}
+            hint={d === 'home_assistant' ? 'e.g. http://192.168.1.20:8123' : 'Reserve this address in your router (DHCP reservation)'}
+          >
             <div style={{ display: 'flex', gap: 6 }}>
               <input className="input" value={f.host} onChange={set('host')} placeholder={d === 'home_assistant' ? 'http://192.168.1.20:8123' : '192.168.1.50'} />
               {(d === 'tasmota' || d.startsWith('shelly')) && (
@@ -1433,7 +1905,12 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
                   value=""
                   onChange={(e) => {
                     const x = imported.find((i) => i.deviceid === e.target.value);
-                    if (x) setF({ ...f, deviceId: x.deviceid, host: x.ip ?? f.host });
+                    if (x)
+                      setF({
+                        ...f,
+                        deviceId: x.deviceid,
+                        host: x.ip ?? f.host,
+                      });
                   }}
                 >
                   <option value="">— Pick a device —</option>
@@ -1452,21 +1929,29 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
             {d === 'sonoff_lan' && (
               <Field
                 label="Device key"
-                hint={saved('deviceKey') ?? (imported.some((x) => x.deviceid === f.deviceId.trim() && x.hasKey) ? 'Leave blank — ZENAA has this key from your eWeLink import' : 'Import your eWeLink account (Integrations) and leave this blank')}
+                hint={
+                  saved('deviceKey') ??
+                  (imported.some((x) => x.deviceid === f.deviceId.trim() && x.hasKey)
+                    ? 'Leave blank — ZENAA has this key from your eWeLink import'
+                    : 'Import your eWeLink account (Integrations) and leave this blank')
+                }
               >
-                <input className="input mono" type="password" autoComplete="off" value={f.deviceKey} onChange={set('deviceKey')} placeholder="leave blank if imported" />
+                <PasswordInput className="input mono" autoComplete="off" value={f.deviceKey} onChange={set('deviceKey')} placeholder="leave blank if imported" />
               </Field>
             )}
           </>
         )}
         {(d === 'esphome' || d === 'home_assistant') && (
-          <Field label={d === 'esphome' ? 'Switch ID' : 'Entity ID'} hint={d === 'esphome' ? 'The id: of the switch in your ESPHome YAML, e.g. relay' : 'Settings → Entities, e.g. switch.ps5_tv_plug or media_player.tv'}>
+          <Field
+            label={d === 'esphome' ? 'Switch ID' : 'Entity ID'}
+            hint={d === 'esphome' ? 'The id: of the switch in your ESPHome YAML, e.g. relay' : 'Settings → Entities, e.g. switch.ps5_tv_plug or media_player.tv'}
+          >
             <input className="input mono" value={f.entityId} onChange={set('entityId')} placeholder={d === 'esphome' ? 'relay' : 'switch.ps5_tv_plug'} />
           </Field>
         )}
         {d === 'home_assistant' && (
           <Field label="Long-lived access token" hint={saved('token') ?? 'Home Assistant → your profile → Security → Long-lived access tokens'}>
-            <input className="input mono" type="password" autoComplete="off" value={f.token} onChange={set('token')} />
+            <PasswordInput className="input mono" autoComplete="off" value={f.token} onChange={set('token')} />
           </Field>
         )}
         {d === 'generic_http' && (
@@ -1491,7 +1976,7 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
               </select>
             </Field>
             <Field label="Authorization header (optional)" hint={saved('authHeader') ?? 'e.g. Bearer abc123 — kept secret'}>
-              <input className="input mono" type="password" autoComplete="off" value={f.authHeader} onChange={set('authHeader')} />
+              <PasswordInput className="input mono" autoComplete="off" value={f.authHeader} onChange={set('authHeader')} />
             </Field>
             {f.method !== 'GET' && (
               <>
@@ -1516,7 +2001,7 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
               <input className="input" value={f.username} onChange={set('username')} placeholder="optional" />
             </Field>
             <Field label="Device password" hint={saved('password')}>
-              <input className="input" type="password" value={f.password} onChange={set('password')} placeholder="optional" />
+              <PasswordInput className="input" value={f.password} onChange={set('password')} placeholder="optional" />
             </Field>
           </>
         )}
@@ -1531,7 +2016,16 @@ function StationForm({ station, onClose }: { station: Station | null; onClose():
             <button type="button" className="btn btn-sm" disabled={!ready || test.isPending} onClick={() => test.mutate('off')}>
               Test OFF
             </button>
-            {testResult && <span style={{ fontSize: 13, color: testResult.startsWith('✓') ? 'var(--success)' : 'var(--danger)' }}>{testResult}</span>}
+            {testResult && (
+              <span
+                style={{
+                  fontSize: 13,
+                  color: testResult.startsWith('✓') ? 'var(--success)' : 'var(--danger)',
+                }}
+              >
+                {testResult}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -1591,8 +2085,8 @@ function TurnOnModal({ s, onClose }: { s: Station; onClose(): void }) {
       }
     >
       <p className="dim" style={{ marginTop: 0 }}>
-        Switches the plug on and unlocks the screen apps without a session — nothing is charged or added to revenue. Use it for game updates, testing controllers, staff
-        play or events. It is recorded in the audit trail with your name.
+        Switches the plug on and unlocks the screen apps without a session — nothing is charged or added to revenue. Use it for game updates, testing controllers, staff play or events. It is recorded
+        in the audit trail with your name.
       </p>
       <Field label="For how long">
         <Segmented
@@ -1643,6 +2137,40 @@ function StaffUseBlock({ s, onStart }: { s: Station; onStart(): void }) {
           </button>
         </div>
       )}
+    </>
+  );
+}
+
+/** How much a customer already owes and their limit (credit), shown before putting more on their account. */
+function AccountInfo({ customer, amount }: { customer: any; amount: number }) {
+  const { money, settings } = useApp();
+  const limit = customer.creditLimit > 0 ? customer.creditLimit : (settings.defaultCreditLimit ?? 0);
+  const after = (customer.outstanding ?? 0) + amount;
+  return (
+    <div className={`hint ${limit <= 0 || after > limit ? 'error-text' : ''}`}>
+      {customer.fullName} owes {money(customer.outstanding ?? 0)} now
+      {limit > 0 ? ` · limit ${money(limit)}${customer.creditLimit > 0 ? '' : ' (default)'} · after this ${money(after)}` : ' · no credit limit set'}
+      {limit <= 0 && ' — set one on their customer page, or a default in Settings → Operations.'}
+      {limit > 0 && after > limit && ' — this is over the limit.'}
+    </div>
+  );
+}
+
+/** Start session: "Collect now" or "Put it on the account (pay later)". */
+function AccountChoice({ customer, value, onChange, amount }: { customer: any; value: boolean; onChange(v: boolean): void; amount: number }) {
+  return (
+    <>
+      <Field label="Payment">
+        <Segmented
+          value={value ? 'later' : 'now'}
+          onChange={(v) => onChange(v === 'later')}
+          options={[
+            { value: 'now', label: 'Paying now' },
+            { value: 'later', label: 'Put on account (pay later)' },
+          ]}
+        />
+      </Field>
+      {value && <AccountInfo customer={customer} amount={amount} />}
     </>
   );
 }

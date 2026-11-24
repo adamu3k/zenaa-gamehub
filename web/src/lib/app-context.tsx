@@ -26,6 +26,9 @@ export interface Settings extends CurrencyCfg {
   requireMomoReference: boolean;
   warningMinutes: number[];
   requireOpenShift: boolean;
+  defaultCreditLimit?: number;
+  portalSelfStart?: boolean;
+  autoPayOwed?: boolean;
   receiptHeader: string;
   receiptFooter: string;
   portalEnabled: boolean;
@@ -225,10 +228,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(logout);
     if (!getToken()) return;
-    get<Me>('/api/auth/me')
-      .then(setMe)
-      .catch(() => setToken(null))
-      .finally(() => setLoading(false));
+    // Only a real "not signed in" answer signs the person out; a slow or dropped connection retries.
+    let off = false;
+    const load = (tries: number) =>
+      get<Me>('/api/auth/me')
+        .then((m) => {
+          if (off) return;
+          setMe(m);
+          setLoading(false);
+        })
+        .catch((e: any) => {
+          if (off) return;
+          const status = e?.status ?? e?.statusCode;
+          if (status === 401 || tries >= 6) {
+            if (status === 401) setToken(null);
+            setLoading(false);
+            return;
+          }
+          setTimeout(() => load(tries + 1), Math.min(4000, 500 * 2 ** tries));
+        });
+    load(0);
+    return () => {
+      off = true;
+    };
   }, [logout]);
 
   // Real-time: invalidate the right queries when the server reports a change.
