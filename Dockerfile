@@ -31,7 +31,8 @@ COPY README.md /app/docs/00-README.md
 # PS4/PS5 timer payloads (built by agents/console/build.ps1); ZENAA writes the station token into them on send.
 COPY server/console /app/console
 ENV CONSOLE_DIR=/app/console
-COPY server/console /app/console
+# Folders the app writes to; owned by the app user so Docker volumes mounted here are writable (online servers).
+RUN mkdir -p /backups /updates && chown node:node /backups /updates
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD node -e "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

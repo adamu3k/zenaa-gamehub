@@ -1,0 +1,101 @@
+# ZENAA GAMEHUB on an online server with Coolify (https://coolify.io).
+#
+# Coolify → + New → Public Repository → https://github.com/adamu3k/zenaa-gamehub
+#   Build pack: Docker Compose · Base directory: /  · Docker Compose location: /docker-compose.server.yml
+# Coolify makes the database password and login key by itself (the SERVICE_PASSWORD_* lines).
+# You set ADMIN_PASSWORD (first sign-in) and the domain of the "app" service. Full guide: docs/27-online-server.md
+#
+# Plain Linux server without Coolify? Use docker-compose.yml instead:  sh tools/server-setup.sh
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zenaa
+      POSTGRES_USER: zenaa
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      TZ: ${TZ:-Africa/Accra}
+    volumes:
+      - zenaa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zenaa -d zenaa"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Coolify: gives the app a web address and sends it to port 8080. Change the domain in the app service's settings.
+      - SERVICE_FQDN_APP_8080
+      - DATABASE_URL=postgres://zenaa:${SERVICE_PASSWORD_POSTGRES}@db:5432/zenaa
+      - JWT_SECRET=${SERVICE_PASSWORD_64_JWT}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      # Only used on the very first start (empty database). At least 8 characters.
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - TZ=${TZ:-Africa/Accra}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - BACKUP_DIR=/backups
+      - UPDATE_DIR=/updates
+    volumes:
+      - zenaa-backups:/backups
+      - zenaa-updates:/updates
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # Nightly database dump into the backups volume (zenaa-YYYYMMDD-HHMMSS.dump), kept BACKUP_KEEP_DAYS days.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: zenaa
+      PGPASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      PGDATABASE: zenaa
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      TZ: ${TZ:-Africa/Accra}
+    volumes:
+      - zenaa-backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        backup_now() {
+          ts=$$(date +%Y%m%d-%H%M%S)
+          tmp="/backups/.zenaa-$$ts.dump.partial"
+          if pg_dump --format=custom --no-owner --file="$$tmp"; then
+            mv "$$tmp" "/backups/zenaa-$$ts.dump"
+            echo "$$(date -Iseconds) backup ok: zenaa-$$ts.dump"
+            find /backups -name 'zenaa-*.dump' -mtime +"$$BACKUP_KEEP_DAYS" -print -delete
+          else
+            rm -f "$$tmp"
+            echo "$$(date -Iseconds) BACKUP FAILED" >&2
+          fi
+        }
+        backup_now
+        last_day=$$(date +%Y%m%d)
+        while true; do
+          sleep 300
+          today=$$(date +%Y%m%d)
+          hour=$$(date +%H | sed 's/^0//')
+          if [ "$$today" != "$$last_day" ] && [ "$${hour:-0}" -ge "$$BACKUP_HOUR" ]; then
+            backup_now
+            last_day=$$today
+          fi
+        done
+
+volumes:
+  zenaa-pgdata:
+  zenaa-backups:
+  zenaa-updates:

@@ -15,6 +15,8 @@ Self-hosted gaming-centre management and billing: stations, live session timers,
 
 ## A. Install on the mini PC (production)
 
+> **Online server instead?** Coolify: deploy this repo with `docker-compose.server.yml`. Any Linux server: `git clone … && sh tools/server-setup.sh`. See [27 Running ZENAA on an online server](docs/27-online-server.md).
+
 ### 1. Install Ubuntu Server 24.04 LTS
 1. Download *Ubuntu Server 24.04 LTS* from ubuntu.com and write it to a USB stick with **Rufus** or **balenaEtcher** (on your Windows PC).
 2. Boot the mini PC from USB and install. Choose **"Install OpenSSH server"**, use the whole 250 GB SSD, and create your user (e.g. `zenaa`).
@@ -145,6 +147,7 @@ Schema change workflow: edit `server/src/db/schema.ts`, run `npm run db:generate
 - [17 Backups, moving to a new PC, one-click updates](docs/17-backup-restore-and-updates.md)
 - [18 MoMo top-ups without a gateway, and Paystack explained](docs/18-momo-without-gateway-and-paystack.md)
 - [19 Staff PINs, user types, admin unlock, finance, shifts, news](docs/19-staff-pins-roles-finance.md)
+- [27 Running ZENAA on an online server (Coolify / any Linux server)](docs/27-online-server.md)
 
 All guides are also inside the app: **Help & guides** (searchable).
 

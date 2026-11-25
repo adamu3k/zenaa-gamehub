@@ -1,5 +1,12 @@
 # Development Log
 
+## 2026-11-25 — Online server: Coolify compose file and Linux setup script
+- `docker-compose.server.yml`: for Coolify (Docker Compose build pack). Secrets come from Coolify's `SERVICE_PASSWORD_POSTGRES` / `SERVICE_PASSWORD_64_JWT`, the domain from `SERVICE_FQDN_APP_8080`; named volumes; no host ports; backup loop inline (no bind-mounted script).
+- `tools/server-setup.sh`: clone-and-run on any Linux server. Makes `.env` with random secrets, starts ZENAA and waits for health; run it again to update (git pull + rebuild).
+- Dockerfile creates `/backups` and `/updates` owned by the app user, so named volumes are writable.
+- Tested with a throwaway stack: healthy, first admin created, nightly dump written, app can write backups.
+- Guide: `docs/27-online-server.md`.
+
 ## 2026-11-24 — v0.9.8 Owed money as a minus balance, paying it from the app (MoMo code / wallet), game packages when booking, one-click publish
 - Setting `autoPayOwed` (default on): money put into a wallet — staff deposit, MoMo code top-up (`momo.ts` credit), Paystack (`paystack.ts` credit) — first pays what the customer owes (`payOwedFromWallet` → `payTabTx`, oldest first, wallet tender). `payTab` now wraps `payTabTx`.
 - Portal `POST /api/portal/account/pay-from-wallet`; `info.autoPayOwed`. Portal "Main balance" = wallet − owed, red with "You owe" when below zero; `PayOwedCard` (Pay from my wallet / Pay with MoMo — the MoMo code card prefilled with the amount owed). Staff customer list shows "owes −…", customer detail shows the main balance in red.
