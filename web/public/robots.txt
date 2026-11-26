@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /$
+Allow: /home
+Allow: /brand/
+Disallow: /api/
+Disallow: /portal/
+Disallow: /login

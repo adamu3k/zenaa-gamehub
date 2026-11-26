@@ -1,0 +1,17 @@
+# Optional: run Cloudflare Tunnel (cloudflared) next to ZENAA in Docker. Guide: docs/28-server-docker-cloudflare-tunnel.md
+#
+#   1. Cloudflare → Networking → Tunnels → Create tunnel (cloudflared) → copy the token.
+#   2. Put it in .env:   TUNNEL_TOKEN=eyJ...
+#   3. docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+#   4. In the tunnel's routes, set every ZENAA hostname to:   http://app:8080
+#
+# Not needed if cloudflared is already installed on the server itself (then use http://localhost:<APP_PORT>).
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?Set TUNNEL_TOKEN in .env (Cloudflare → Tunnels → your tunnel → token)}
+    depends_on:
+      - app

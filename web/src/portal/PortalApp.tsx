@@ -250,7 +250,7 @@ function AuthScreen() {
         </button>
         <InstallButton compact label="Install the app on this phone" />
         <a href="/" className="dim" style={{ fontSize: 12, textAlign: 'center' }}>
-          Staff sign-in
+          ← Home
         </a>
       </form>
     </div>

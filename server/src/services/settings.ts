@@ -208,6 +208,38 @@ export const SettingsSchema = z.object({
       brandLight: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a colour like #7c5cff').default('#ebfc9c'),
     })
     .default({}),
+
+  // ── Public home page (what visitors and Google see before signing in) ──
+  website: z
+    .object({
+      /** Show the home page at the main address. Off = visitors go straight to the staff sign-in. */
+      enabled: z.boolean().default(true),
+      /** Big line at the top. */
+      tagline: z.string().trim().max(80).default('Play. Compete. Win.'),
+      /** Short text under the tagline, also used as the Google description. */
+      intro: z.string().trim().max(300).default(''),
+      /** "About us" text. Blank lines start a new paragraph. */
+      about: z.string().trim().max(2000).default(''),
+      /** Street address / area, shown in "Find us" and used to place the Google map. */
+      address: z.string().trim().max(200).default(''),
+      /** Optional Google Maps link (Share → Copy link) for the "Directions" button. */
+      mapsLink: z.string().trim().max(300).default(''),
+      phone: z.string().trim().max(30).default(''),
+      email: z.string().trim().max(120).default(''),
+      /** Game cards on the home page. */
+      games: z
+        .array(
+          z.object({
+            name: z.string().trim().min(1).max(40),
+            tag: z.string().trim().max(30).default(''),
+            /** Optional picture address (https://…). Empty = a coloured card. */
+            image: z.string().trim().max(500).default(''),
+          }),
+        )
+        .max(24)
+        .default([]),
+    })
+    .default({}),
 });
 export type AppSettings = z.infer<typeof SettingsSchema>;
 
@@ -317,6 +349,29 @@ export const DEFAULT_SETTINGS: AppSettings = {
     brandPop: '#ccf02a',
     brandLight: '#ebfc9c',
   },
+  website: {
+    enabled: true,
+    tagline: 'Play. Compete. Win.',
+    intro: 'PS5 stations, racing wheel setups, tournaments and a players app with your wallet, bookings and rankings.',
+    about:
+      'ZENAA GAMEHUB by ZENAA MEGA GAMES is a gaming lounge built for players. Come alone or bring the squad: book a station, top up with MoMo, and climb the leaderboard.\n\nWe run regular tournaments, keep the newest games ready to play, and our players app keeps your time, wallet and rankings in your pocket.',
+    address: '',
+    mapsLink: '',
+    phone: '',
+    email: '',
+    games: [
+      { name: 'EA SPORTS FC', tag: 'Football', image: '' },
+      { name: 'Call of Duty', tag: 'Shooter', image: '' },
+      { name: 'Grand Theft Auto', tag: 'Open world', image: '' },
+      { name: 'Racing Wheel', tag: 'Gran Turismo · F1', image: '' },
+      { name: 'Mortal Kombat', tag: 'Fighting', image: '' },
+      { name: 'Tekken 8', tag: 'Fighting', image: '' },
+      { name: 'NBA 2K', tag: 'Basketball', image: '' },
+      { name: 'WWE 2K', tag: 'Wrestling', image: '' },
+      { name: 'Fortnite', tag: 'Battle royale', image: '' },
+      { name: "Marvel's Spider-Man", tag: 'Adventure', image: '' },
+    ],
+  },
 };
 
 const KEY = 'app';
@@ -332,6 +387,7 @@ export async function getSettings(db: DbOrTx): Promise<AppSettings> {
     ...v,
     appearance: { ...DEFAULT_SETTINGS.appearance, ...(v.appearance ?? {}) },
     social: { ...DEFAULT_SETTINGS.social, ...(v.social ?? {}) },
+    website: { ...DEFAULT_SETTINGS.website, ...(v.website ?? {}) },
   };
 }
 

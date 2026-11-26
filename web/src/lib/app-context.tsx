@@ -85,6 +85,23 @@ export interface Settings extends CurrencyCfg {
   newsFeedCount: number;
   appearance: Appearance;
   social: SocialSettings;
+  website?: WebsiteSettings;
+}
+export interface WebsiteGame {
+  name: string;
+  tag: string;
+  image: string;
+}
+export interface WebsiteSettings {
+  enabled: boolean;
+  tagline: string;
+  intro: string;
+  about: string;
+  address: string;
+  mapsLink: string;
+  phone: string;
+  email: string;
+  games: WebsiteGame[];
 }
 export interface SocialSettings {
   ideasOn: boolean;

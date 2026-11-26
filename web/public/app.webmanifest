@@ -3,7 +3,7 @@
   "name": "ZENAA GAMEHUB \u2014 Staff",
   "short_name": "ZENAA Staff",
   "description": "Stations, sessions, billing and competitions.",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b0d12",

@@ -98,6 +98,25 @@ export async function contentRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   // ── Public (portal, venue TV, visitors) ──
+  /** The public home page: venue details, game cards, socials (no secrets). */
+  app.get('/api/public/site', async (_req, reply) => {
+    const s = await getSettings(ctx.db);
+    reply.header('cache-control', 'public, max-age=60');
+    return {
+      centerName: s.centerName,
+      brandName: s.receiptHeader.split('\n')[0].trim(),
+      openingTime: s.openingTime,
+      closingTime: s.closingTime,
+      currencyCode: s.currencyCode,
+      phonePrefix: s.phonePrefix,
+      socialLinks: s.socialLinks,
+      website: s.website,
+      portalEnabled: s.portalEnabled,
+      selfSignup: s.portalSelfSignup,
+      bookingsEnabled: s.bookingsEnabled,
+      leaderboardPublic: s.leaderboardPublic,
+    };
+  });
   app.get('/api/public/news', async () => {
     const s = await getSettings(ctx.db);
     // Stories with a blocked word (Settings → Customer chat) are left out.

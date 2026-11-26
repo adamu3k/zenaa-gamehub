@@ -1,5 +1,16 @@
 # Development Log
 
+## 2026-11-26 — v1.3.0 Public home page (landing page)
+- New public home page at `/` for visitors (and Google): hero with Create account / Sign in (customer app), game cards in a scrolling row (click = customer app, booking if on), How it works, News (own posts + game news), About us, Find us (Google map from the address, hours, phone, WhatsApp, Directions), app install band, footer with socials. The staff sign-in is a quiet "Staff" link in the footer and at `/login`.
+- `/` still opens the staff sign-in on devices where staff have signed in before, and inside the installed staff app (its start page is now `/login`). `/home` always shows the home page. Installing from the home page gives the customer app (opens on `/portal`).
+- Settings → Public home page: on/off, headline, intro, About text, address, Google Maps link, phone, email, game cards (name, type, optional picture). Public `GET /api/public/site` (no secrets). SEO title/description/OG tags, `robots.txt`.
+- 161 tests (new `site-v130.test.ts`).
+
+## 2026-11-26 — Online server guides; optional Cloudflare Tunnel container
+- Live setup: Coolify (`docker-compose.server.yml`, `APP_PORT=18080` because 8080 was taken) behind Cloudflare Tunnel `zenaa server` (cloudflared on the host) → `localhost:18080` for zenaamegagames.online, www, zenaa.adamun8n.online. DNS records changed from Namecheap parking A/CNAME to Tunnel CNAMEs.
+- Guides: 27 rewritten (Coolify + Tunnel, every error we hit), new 28 (only Docker + Tunnel), new 29 (Portainer, Dockge, CasaOS, Dokploy).
+- `docker-compose.tunnel.yml`: optional cloudflared container (TUNNEL_TOKEN), routes to `http://app:8080`.
+
 ## 2026-11-25 — Online server: Coolify compose file and Linux setup script
 - `docker-compose.server.yml`: for Coolify (Docker Compose build pack). Secrets come from Coolify's `SERVICE_PASSWORD_POSTGRES` / `SERVICE_PASSWORD_64_JWT`, the domain from `SERVICE_FQDN_APP_8080`; named volumes; no host ports; backup loop inline (no bind-mounted script).
 - `tools/server-setup.sh`: clone-and-run on any Linux server. Makes `.env` with random secrets, starts ZENAA and waits for health; run it again to update (git pull + rebuild).

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useApp } from './lib/app-context';
 import { page, PageFrame, PageLoading } from './lib/lazy';
+import { isStandalone } from './lib/pwa';
 
 const AuditPage = page(() => import('./pages/Audit'), 'AuditPage');
 const RemoteViewPage = page(() => import('./pages/RemoteView'), 'RemoteViewPage');
@@ -10,6 +11,7 @@ const PortalApp = page(() => import('./portal/PortalApp'), 'PortalApp');
 const CustomersPage = page(() => import('./pages/Customers'), 'CustomersPage');
 const DashboardPage = page(() => import('./pages/Dashboard'), 'DashboardPage');
 const LoginPage = page(() => import('./pages/Login'), 'LoginPage');
+const LandingPage = page(() => import('./pages/Landing'), 'LandingPage');
 const PaymentsPage = page(() => import('./pages/Payments'), 'PaymentsPage');
 const PricingPage = page(() => import('./pages/Pricing'), 'PricingPage');
 const PromotionsPage = page(() => import('./pages/Promotions'), 'PromotionsPage');
@@ -56,6 +58,23 @@ function warmUp() {
   idle(go);
 }
 
+/** Devices where staff have signed in keep opening on the staff sign-in at "/", not the public home page. */
+const STAFF_DEVICE = 'zenaa.staffDevice';
+function isStaffDevice() {
+  try {
+    return localStorage.getItem(STAFF_DEVICE) === '1';
+  } catch {
+    return false;
+  }
+}
+function markStaffDevice() {
+  try {
+    localStorage.setItem(STAFF_DEVICE, '1');
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function App() {
   const { me, loading } = useApp();
   const loc = useLocation();
@@ -64,6 +83,13 @@ export function App() {
     return (
       <PageFrame>
         <PortalApp />
+      </PageFrame>
+    );
+  // Public home page: /home always; / for visitors who aren't signed in as staff (not inside the installed staff app).
+  if (loc.pathname === '/home' || (loc.pathname === '/' && !me && !loading && !isStandalone() && !isStaffDevice()))
+    return (
+      <PageFrame>
+        <LandingPage />
       </PageFrame>
     );
   // Venue TV: public leaderboard + live tournament, no sign-in.
@@ -79,7 +105,10 @@ export function App() {
         <PageLoading />
       </div>
     );
-  if (me) warmUp();
+  if (me) {
+    warmUp();
+    markStaffDevice();
+  }
   if (!me)
     return (
       <PageFrame>

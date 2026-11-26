@@ -3,7 +3,7 @@ import { Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ErrorBox, Field, PageHeader, PasswordInput } from '../components/ui';
 import { del, get, post, put, setToken } from '../lib/api';
-import { useApp } from '../lib/app-context';
+import { useApp, type WebsiteGame, type WebsiteSettings } from '../lib/app-context';
 import { formatMoney, parseMoney, toMajorString } from '../lib/format';
 import { AppearanceCard } from './SettingsAppearance';
 
@@ -158,6 +158,7 @@ export function SettingsPage() {
         newsFeedCount: f.newsFeedCount,
         appearance: settings.appearance,
         social: settings.social,
+        website: f.website && { ...f.website, games: f.website.games.filter((g) => g.name.trim()) },
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
@@ -458,6 +459,8 @@ export function SettingsPage() {
           ))}
         </div>
 
+        {f.website && <WebsiteFields value={f.website} onChange={(website) => setF({ ...f, website })} />}
+
         <h2>Smart plugs (station power)</h2>
         <div className="muted" style={{ fontSize: 13 }}>
           Set the plug for each station under Stations → edit (pencil). Help & guides → Smart devices explains every supported plug, SONOFF and DIY board.
@@ -740,5 +743,85 @@ function MomoRelay() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Settings → Public home page (the page visitors and Google see at the main address). */
+function WebsiteFields({ value: w, onChange }: { value: WebsiteSettings; onChange: (w: WebsiteSettings) => void }) {
+  const set = (p: Partial<WebsiteSettings>) => onChange({ ...w, ...p });
+  const setGame = (i: number, p: Partial<WebsiteGame>) => set({ games: w.games.map((g, j) => (j === i ? { ...g, ...p } : g)) });
+  const move = (i: number, d: number) => {
+    const j = i + d;
+    if (j < 0 || j >= w.games.length) return;
+    const g = [...w.games];
+    [g[i], g[j]] = [g[j], g[i]];
+    set({ games: g });
+  };
+  return (
+    <>
+      <h2 id="website">Public home page</h2>
+      <div className="muted" style={{ fontSize: 13 }}>
+        What visitors and Google see at your main address before signing in. Buttons on it open the customer app; staff use the small "Staff" link at the bottom, or{' '}
+        <span className="mono">/login</span>.{' '}
+        <a href="/home" target="_blank" rel="noreferrer">
+          Open the home page ↗
+        </a>
+      </div>
+      <div className="form-grid">
+        <label className="check" style={{ gridColumn: '1 / -1' }}>
+          <input type="checkbox" checked={w.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Show the home page (off = the main address opens the staff sign-in)
+        </label>
+        <Field label="Big headline">
+          <input className="input" maxLength={80} value={w.tagline} onChange={(e) => set({ tagline: e.target.value })} placeholder="Play. Compete. Win." />
+        </Field>
+        <Field label="Short intro" hint="Under the headline. Google may show it in search results.">
+          <input className="input" maxLength={300} value={w.intro} onChange={(e) => set({ intro: e.target.value })} />
+        </Field>
+        <Field label="About us" full hint="An empty line starts a new paragraph.">
+          <textarea className="input" rows={5} maxLength={2000} value={w.about} onChange={(e) => set({ about: e.target.value })} />
+        </Field>
+        <Field label="Address / location" hint="Shown under Find us and used to place the Google map, e.g. Madina Zongo Junction, Accra.">
+          <input className="input" maxLength={200} value={w.address} onChange={(e) => set({ address: e.target.value })} />
+        </Field>
+        <Field label="Google Maps link (optional)" hint="Google Maps → your place → Share → Copy link. Used for the Directions button.">
+          <input className="input" maxLength={300} value={w.mapsLink} onChange={(e) => set({ mapsLink: e.target.value })} placeholder="https://maps.app.goo.gl/…" />
+        </Field>
+        <Field label="Phone">
+          <input className="input" maxLength={30} value={w.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="024 000 0000" />
+        </Field>
+        <Field label="Email">
+          <input className="input" type="email" maxLength={120} value={w.email} onChange={(e) => set({ email: e.target.value })} />
+        </Field>
+      </div>
+      <h3 style={{ margin: '14px 0 6px' }}>Game cards</h3>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+        Clicking a card opens the customer app (booking, if bookings are on). Picture is optional: an https:// address of a cover image you may use; empty = a coloured card.
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {w.games.map((g, i) => (
+          <div key={i} className="toolbar" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <input className="input" style={{ flex: '2 1 160px' }} maxLength={40} value={g.name} onChange={(e) => setGame(i, { name: e.target.value })} placeholder="Game name" />
+            <input className="input" style={{ flex: '1 1 120px' }} maxLength={30} value={g.tag} onChange={(e) => setGame(i, { tag: e.target.value })} placeholder="Type, e.g. Racing" />
+            <input className="input" style={{ flex: '3 1 200px' }} maxLength={500} value={g.image} onChange={(e) => setGame(i, { image: e.target.value })} placeholder="Picture https://… (optional)" />
+            <button type="button" className="btn btn-sm" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">
+              ↑
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => move(i, 1)} disabled={i === w.games.length - 1} aria-label="Move down">
+              ↓
+            </button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => set({ games: w.games.filter((_, j) => j !== i) })}>
+              Remove
+            </button>
+          </div>
+        ))}
+        {w.games.length < 24 && (
+          <div>
+            <button type="button" className="btn btn-sm" onClick={() => set({ games: [...w.games, { name: '', tag: '', image: '' }] })}>
+              + Add game
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

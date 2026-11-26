@@ -51,6 +51,9 @@ export function LoginPage() {
           <a href="/portal" className="muted">
             Customer? Open the customer portal →
           </a>
+          <a href="/home" className="dim">
+            Home
+          </a>
           <div className="spacer" />
           <ThemeToggle />
         </div>
