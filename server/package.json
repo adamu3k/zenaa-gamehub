@@ -1,6 +1,6 @@
 {
   "name": "@zenaa/server",
-  "version": "0.9.8",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "scripts": {
