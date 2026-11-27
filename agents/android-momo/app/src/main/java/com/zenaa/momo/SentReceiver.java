@@ -12,6 +12,7 @@ public class SentReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         final String id = intent.getStringExtra("id");
         final String to = intent.getStringExtra("to");
+        final int slot = intent.getIntExtra("slot", -1);
         if (id == null) return;
         final int code = getResultCode();
         final boolean ok = code == Activity.RESULT_OK;
@@ -21,7 +22,7 @@ public class SentReceiver extends BroadcastReceiver {
         final PendingResult pending = goAsync();
         new Thread(() -> {
             try {
-                Outbox.report(app, id, ok, error);
+                Outbox.report(app, id, ok, error, slot);
             } finally {
                 pending.finish();
             }

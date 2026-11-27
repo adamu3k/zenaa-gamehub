@@ -188,7 +188,7 @@ public class MainActivity extends Activity {
             root.addView(err);
             Button pair = button("Pair", true);
             pair.setOnClickListener(v -> {
-                final String url = server.getText().toString().trim().replaceAll("/+$", "");
+                final String url = Relay.origin(server.getText().toString()); // "https://site.com/admin" -> "https://site.com"
                 final String c = code.getText().toString().trim();
                 err.setText("Pairing…");
                 new Thread(() -> {
@@ -273,6 +273,7 @@ public class MainActivity extends Activity {
      */
     private void buildOtherApps() {
         root.addView(text("Other apps", 18, Color.WHITE, true));
+        root.addView(text("Another ZENAA app (e.g. WiFi Hub): Link = just its website, e.g. https://wifi.example.com. Code = the 6-digit code from its admin (MoMo, Relay phones, Pair). It then also sends that app's customer SMS.", 12, Color.parseColor("#6E7382"), false));
         root.addView(text("Send a copy of the MoMo SMS to more apps too (another branch, a bookkeeping app…). Each needs a link and its code.", 13, Color.parseColor("#9AA4B2"), false));
         for (int i = 0; i < ExtraApps.SLOTS; i++) {
             final int slot = i;
@@ -293,8 +294,8 @@ public class MainActivity extends Activity {
             if (editingSlot == slot) {
                 box.addView(text((s.ready() ? "Edit " : "Set up ") + "app " + (slot + 2), 15, Color.WHITE, true));
                 final EditText name = input("Name, e.g. Branch 2", s.name, InputType.TYPE_CLASS_TEXT);
-                final EditText url = input("Link, e.g. https://example.com/api/momo/sms", s.url.isEmpty() ? "https://" : s.url, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-                final EditText code = input("Code (key / token from that app)", s.code, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                final EditText url = input("Link, e.g. https://wifi.example.com", s.url.isEmpty() ? "https://" : s.url, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+                final EditText code = input("Code: 6-digit pairing code (ZENAA apps) or the app's key", s.zenaaBase() != null && !s.needsPairing() ? "" : s.code, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
                 final android.widget.CheckBox momoOnly = new android.widget.CheckBox(this);
                 momoOnly.setText("Only MoMo payment messages (recommended)");
                 momoOnly.setTextColor(Color.parseColor("#BEC3D2"));
@@ -313,10 +314,18 @@ public class MainActivity extends Activity {
                         err.setText("The link must start with https:// (or http:// on the same Wi-Fi)");
                         return;
                     }
-                    ExtraApps.save(this, slot, name.getText().toString(), link, code.getText().toString(), momoOnly.isChecked());
+                    String typed = code.getText().toString().trim();
+                    // ZENAA app already paired and the code box left empty: keep the saved token
+                    String keep = typed.isEmpty() && s.zenaaBase() != null && Relay.origin(link).equals(Relay.origin(s.url)) ? s.code : typed;
+                    ExtraApps.save(this, slot, name.getText().toString(), link, keep, momoOnly.isChecked());
                     editingSlot = -1;
-                    RelayService.start(this);
-                    build();
+                    err.setText("Saving...");
+                    new Thread(() -> {
+                        String problem = ExtraApps.ensurePaired(this, slot);
+                        if (problem != null) Relay.log(this, problem);
+                        RelayService.start(this);
+                        ui.post(this::build);
+                    }).start();
                 });
                 box.addView(save);
                 Button cancel = button("Cancel", false);
@@ -327,7 +336,8 @@ public class MainActivity extends Activity {
                 box.addView(cancel);
             } else if (s.ready()) {
                 box.addView(text("✓ " + s.label(), 15, Color.parseColor("#22C55E"), true));
-                box.addView(text(s.url + (s.code.isEmpty() ? " · no code" : " · code set") + (s.momoOnly ? " · MoMo only" : " · all SMS"), 12, Color.parseColor("#9AA4B2"), false));
+                String state = s.zenaaBase() != null ? (s.needsPairing() ? " · waiting to pair" : s.code.isEmpty() ? " · no code" : " · paired, sends its customer SMS too") : (s.code.isEmpty() ? " · no code" : " · code set");
+                box.addView(text(s.url + state + (s.momoOnly ? " · MoMo only" : " · all SMS"), 12, Color.parseColor("#9AA4B2"), false));
                 int waiting = ExtraApps.queued(this, slot);
                 if (waiting > 0) box.addView(text(waiting + " message(s) waiting (app unreachable)", 12, Color.parseColor("#F59E0B"), false));
                 final TextView status = text("", 13, Color.parseColor("#BEC3D2"), false);

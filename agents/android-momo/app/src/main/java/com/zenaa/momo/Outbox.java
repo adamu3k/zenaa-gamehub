@@ -34,11 +34,29 @@ final class Outbox {
         return SmsManager.getDefault();
     }
 
-    /** Call from a background thread. Returns how many messages were handed to Android. */
-    static synchronized int run(Context c) {
+    /** Server and token for slot -1 (the main ZENAA pairing) or an "Other apps" slot that is a ZENAA app. */
+    static String[] target(Context c, int slot) {
         SharedPreferences p = Relay.prefs(c);
-        String server = p.getString("server", "");
-        String token = p.getString("token", "");
+        if (slot < 0) return new String[]{p.getString("server", ""), p.getString("token", "")};
+        ExtraApps.Slot s = ExtraApps.get(c, slot);
+        String base = s.ready() ? s.zenaaBase() : null;
+        if (base == null || s.code.isEmpty() || s.needsPairing()) return new String[]{"", ""};
+        // the same server as the main pairing is already served
+        if (!p.getString("token", "").isEmpty() && Relay.origin(base).equals(Relay.origin(p.getString("server", "")))) return new String[]{"", ""};
+        return new String[]{base, s.code};
+    }
+
+    /** Call from a background thread. Returns how many messages were handed to Android (all servers). */
+    static synchronized int run(Context c) {
+        int n = runFor(c, -1);
+        for (int i = 0; i < ExtraApps.SLOTS; i++) n += runFor(c, i);
+        return n;
+    }
+
+    private static int runFor(Context c, int slot) {
+        String[] t = target(c, slot);
+        String server = t[0];
+        String token = t[1];
         if (server.isEmpty() || token.isEmpty() || !canSend(c)) return 0;
         JSONArray list;
         try {
@@ -59,7 +77,7 @@ final class Outbox {
             try {
                 SmsManager mgr = sms(c);
                 ArrayList<String> parts = mgr.divideMessage(body);
-                Intent sent = new Intent(ACTION_SENT).setClass(c, SentReceiver.class).putExtra("id", id).putExtra("to", to);
+                Intent sent = new Intent(ACTION_SENT).setClass(c, SentReceiver.class).putExtra("id", id).putExtra("to", to).putExtra("slot", slot);
                 PendingIntent pi = PendingIntent.getBroadcast(c, id.hashCode(), sent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 if (parts.size() <= 1) {
                     mgr.sendTextMessage(to, null, body, pi, null);
@@ -70,20 +88,21 @@ final class Outbox {
                 }
                 n++;
             } catch (Exception e) {
-                report(c, id, false, "Phone refused: " + e.getMessage());
+                report(c, id, false, "Phone refused: " + e.getMessage(), slot);
                 Relay.log(c, "SMS to " + to + " failed: " + e.getMessage());
             }
         }
         return n;
     }
 
-    static void report(Context c, String id, boolean ok, String error) {
-        SharedPreferences p = Relay.prefs(c);
+    static void report(Context c, String id, boolean ok, String error, int slot) {
+        String[] t = target(c, slot);
+        if (t[0].isEmpty()) return;
         try {
             JSONObject b = new JSONObject();
             b.put("ok", ok);
             if (error != null) b.put("error", error);
-            Relay.call("POST", p.getString("server", "") + "/api/momo/relay/outbox/" + id, p.getString("token", ""), b);
+            Relay.call("POST", t[0] + "/api/momo/relay/outbox/" + id, t[1], b);
         } catch (Exception ignored) {
             // ZENAA marks it as "did not report back" after a few minutes.
         }

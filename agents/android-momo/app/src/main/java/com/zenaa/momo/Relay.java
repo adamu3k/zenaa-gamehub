@@ -22,7 +22,7 @@ import java.util.Locale;
  * with the next SMS, when the app is opened, or with "Send waiting messages".
  */
 final class Relay {
-    static final String VERSION = "1.3.0";
+    static final String VERSION = "1.4.0";
 
     static final class Result {
         final int status;
@@ -31,6 +31,18 @@ final class Relay {
         Result(int status, JSONObject json) {
             this.status = status;
             this.json = json;
+        }
+    }
+
+    /** "https://site.com/admin/" -> "https://site.com" (scheme, host and port only). */
+    static String origin(String url) {
+        String u = url == null ? "" : url.trim();
+        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://" + u;
+        try {
+            URL p = new URL(u);
+            return p.getProtocol() + "://" + p.getHost() + (p.getPort() > 0 && p.getPort() != p.getDefaultPort() ? ":" + p.getPort() : "");
+        } catch (Exception e) {
+            return u.replaceAll("/+$", "");
         }
     }
 
