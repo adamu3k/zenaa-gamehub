@@ -183,7 +183,7 @@ export function LandingPage() {
   }, [s]);
   useEffect(() => {
     document.title = `${centre} — ${w?.tagline || 'Gaming lounge'}`;
-    const desc = w?.intro || `${centre}: PS5 gaming lounge with racing wheels, tournaments and a players app.`;
+    const desc = w?.intro || `${centre}: PS5 gaming lounge with racing wheels, tournaments and a customer app.`;
     let m = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!m) {
       m = document.createElement('meta');
