@@ -25,6 +25,8 @@ export const SettingsSchema = z.object({
   requireMomoReference: z.boolean().default(false),
   /** Minutes-before-expiry at which staff are alerted for prepaid sessions. */
   warningMinutes: z.array(z.number().int().min(1).max(120)).max(5),
+  /** Counter speaker says the player's first name too: "Kofi, PS5 One, 5 minutes remaining". */
+  announceNames: z.boolean().default(true),
   /** When true, staff must open a shift (cash drawer) before taking or paying out money. */
   requireOpenShift: z.boolean().default(false),
   /** Credit limit for customers who have none of their own (0 = only customers with their own limit may pay later). */
@@ -267,6 +269,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mobileMoneyProviders: ['MTN MoMo', 'Telecel Cash', 'AT Money'],
   requireMomoReference: false,
   warningMinutes: [5, 1],
+  announceNames: true,
   requireOpenShift: false,
   defaultCreditLimit: 0,
   receiptHeader: '',

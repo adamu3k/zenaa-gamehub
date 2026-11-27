@@ -86,7 +86,7 @@ export const SECTIONS = {
     tables: ['customers', 'shifts', 'sessions', 'session_events', 'payments', 'wallet_transactions', 'bookings', 'online_payments', 'momo_requests', 'momo_sms', 'customer_time_log', 'sms_outbox', 'customer_charges', 'push_subscriptions'],
   },
   competitions: { label: 'Games, leaderboard, tournaments & Find match', tables: ['games', 'tournaments', 'tournament_entries', 'matches', 'match_requests'] },
-  community: { label: 'News, chat, rewards & social posts', tables: ['posts', 'chat_messages', 'reward_offers', 'reward_claims', 'social_posts', 'social_media'] },
+  community: { label: 'News, chat, rewards & social posts', tables: ['posts', 'chat_messages', 'reward_offers', 'reward_claims', 'social_posts', 'social_media', 'promo_packages', 'promo_package_awards'] },
   audit: { label: 'Audit trail', tables: ['audit_logs'] },
 } as const;
 export type SectionKey = keyof typeof SECTIONS;

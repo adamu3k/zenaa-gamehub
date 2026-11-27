@@ -359,6 +359,47 @@ export function PortalRewards({ money }: { money(n: number): string }) {
         </div>
       )}
 
+      {(d?.packages ?? []).length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <h2>
+              <Gift size={18} style={{ verticalAlign: -3 }} /> Play more, get more
+            </h2>
+            <span className="dim" style={{ fontSize: 12 }}>
+              Bonuses are added to your account automatically
+            </span>
+          </div>
+          <div className="list">
+            {(d.packages as any[]).map((p) => {
+              const pct = Math.min(100, Math.round((p.progress / p.target) * 100));
+              const show = (v: number) => (p.goal === 'spend' ? money(v) : playTime(v));
+              const prize = [p.bonusAmount > 0 && `${money(p.bonusAmount)} bonus`, p.bonusMinutes > 0 && `${playTime(p.bonusMinutes)} free`].filter(Boolean).join(' + ');
+              const when = p.period === 'day' ? 'today' : p.period === 'week' ? 'this week' : p.period === 'month' ? 'this month' : p.validTo ? `by ${formatDateTime(p.validTo)}` : '';
+              const again = p.period === 'once' ? 'Watch out for the next offer.' : `Come back ${p.period === 'day' ? 'tomorrow' : `next ${p.period}`} for another bonus.`;
+              return (
+                <div key={p.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span>
+                      <strong>{p.name}</strong>
+                      <div className="dim" style={{ fontSize: 12 }}>
+                        {p.description || `${p.goal === 'spend' ? 'Spend' : 'Play'} ${show(p.target)} ${when} → ${prize}`}
+                      </div>
+                    </span>
+                    {p.earned ? <span className="badge badge-success">✓ Bonus added</span> : <span className="badge badge-info">{prize}</span>}
+                  </div>
+                  <div style={{ height: 8, borderRadius: 99, background: 'rgba(127,127,127,.25)', overflow: 'hidden' }}>
+                    <div style={{ width: `${p.earned ? 100 : pct}%`, height: '100%', background: p.earned ? '#22c55e' : 'var(--primary, #1d44f9)' }} />
+                  </div>
+                  <div className="dim" style={{ fontSize: 12 }}>
+                    {p.earned ? `Done ${when}. ${again}` : `${show(p.progress)} of ${show(p.target)} ${when}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {(d?.promoCodes ?? []).length > 0 && (
         <div className="card">
           <div className="card-head">
@@ -385,7 +426,7 @@ export function PortalRewards({ money }: { money(n: number): string }) {
         </div>
       )}
 
-      {d && follow.length === 0 && !d.hasCodes && (d.promoCodes ?? []).length === 0 && <div className="card card-pad muted">No rewards right now — check back soon.</div>}
+      {d && follow.length === 0 && !d.hasCodes && (d.promoCodes ?? []).length === 0 && (d.packages ?? []).length === 0 && <div className="card card-pad muted">No rewards right now — check back soon.</div>}
     </>
   );
 }
@@ -429,4 +470,11 @@ export function MorePage({ items, onSignOut }: { items: { to: string; label: str
       </button>
     </>
   );
+}
+
+/** 90 → "1 h 30 min". */
+function playTime(min: number) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
 }

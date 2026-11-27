@@ -155,6 +155,27 @@ Good to know:
 - A message the phone couldn't send (no airtime, no signal) shows **failed** with the reason. If the phone was off for more than 12 hours, old messages are not sent any more (*too old*), so customers don't get a pile of messages in the morning.
 - Updating from ZENAA MoMo 1.1: install the new **ZenaaMoMo.apk** over the old one (Integrations → downloads, or `tools\ZENAA-MoMo-phone-setup.cmd` with the USB cable). Then open it once and allow **SMS** again if it asks: sending SMS is a new permission.
 
+### Send the MoMo SMS to other apps too (ZENAA MoMo 1.3)
+
+The same phone can pass the MoMo SMS to more apps than ZENAA: another branch, a bookkeeping app, your own webhook.
+
+1. Install the new **ZenaaMoMo.apk** over the old one. Pairing stays.
+2. Open ZENAA MoMo and scroll to **Other apps**. There are 3 empty boxes, *"App 2 · empty"*, *"App 3 · empty"* and *"App 4 · empty"*.
+3. Press **Set up** on one box and type:
+   - **Name**, for example *Branch 2*.
+   - **Link**: the address that app gave you for receiving SMS, starting with `https://`. Use `http://` only on the same Wi-Fi.
+   - **Code**: that app's key or token.
+4. Leave **Only MoMo payment messages** ticked. If you untick it, every SMS on the phone goes to that app, including bank codes and private messages.
+5. Press **Save**, then **Test**. *"✓ Branch 2 received the test"* means it works.
+
+What the other app receives: an HTTP `POST` with JSON `{ "from", "body", "at", "device", "source": "zenaa-momo", "version" }`. The code is sent as `Authorization: Bearer <code>` and as `X-Relay-Code: <code>`. The test message also has `"test": true`. A `2xx` answer counts as delivered. Each app has its own waiting list, so if one app is offline, ZENAA and the other apps still get their messages.
+
+**For developers: more than 3 boxes, or links filled in for you.** Open `agents/android-momo/app/src/main/java/com/zenaa/momo/ExtraApps.java` and look for the block marked **PLACEHOLDER — MORE APPS**:
+- `SLOTS` is the number of boxes. Change it from 3 to the number you need.
+- `PRESET` holds names and links to fill in on every phone, for example `{"Branch 2", "https://branch2.example.com/api/momo/sms"}`.
+- Never put the codes in that file, because the repository is public. Type the codes on the phone.
+- Rebuild with `agentsndroid-momouild-apk.ps1`.
+
 ---
 
 ## 5. Paystack — what it is and what it costs

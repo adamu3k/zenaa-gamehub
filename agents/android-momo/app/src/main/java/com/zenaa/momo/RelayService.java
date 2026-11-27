@@ -21,7 +21,7 @@ public class RelayService extends Service {
     private Thread loop;
 
     static void start(Context c) {
-        if (Relay.prefs(c).getString("token", "").isEmpty()) return;
+        if (!setUp(c)) return;
         Intent i = new Intent(c, RelayService.class);
         try {
             if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i);
@@ -29,6 +29,11 @@ public class RelayService extends Service {
         } catch (Exception ignored) {
             // Android may refuse to start it from the background; it starts again when the app is opened.
         }
+    }
+
+    /** Paired with ZENAA, or at least one "Other app" set up. */
+    static boolean setUp(Context c) {
+        return !Relay.prefs(c).getString("token", "").isEmpty() || ExtraApps.anyReady(c);
     }
 
     @Override
@@ -41,8 +46,9 @@ public class RelayService extends Service {
             loop = new Thread(() -> {
                 while (running) {
                     try {
-                        if (Relay.prefs(this).getString("token", "").isEmpty()) break;
+                        if (!setUp(this)) break;
                         Relay.flush(this);
+                        ExtraApps.flush(this);
                         Outbox.run(this);
                     } catch (Exception ignored) {
                     }

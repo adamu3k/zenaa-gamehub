@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
         RelayService.start(this);
         new Thread(() -> {
             Relay.flush(this);
+            ExtraApps.flush(this);
             Outbox.run(this);
             ui.post(this::build);
         }).start();
@@ -259,7 +260,110 @@ public class MainActivity extends Activity {
             });
             root.addView(unpair);
         }
-        root.addView(text("ZENAA MoMo " + Relay.VERSION + " · only ZENAA receives the messages; it ignores everything that isn't a MoMo payment.", 12, Color.parseColor("#6E7382"), false));
+        buildOtherApps();
+        root.addView(text("ZENAA MoMo " + Relay.VERSION + " · messages go only to ZENAA and the other apps listed above.", 12, Color.parseColor("#6E7382"), false));
+    }
+
+    /** Which "Other apps" box is open for editing (-1 = none). */
+    private int editingSlot = -1;
+
+    /**
+     * "Other apps": extra links that get a copy of the MoMo SMS too. Empty boxes are placeholders ready to set up.
+     * How many boxes there are, and optional preset links, live in ExtraApps.java (SLOTS / PRESET).
+     */
+    private void buildOtherApps() {
+        root.addView(text("Other apps", 18, Color.WHITE, true));
+        root.addView(text("Send a copy of the MoMo SMS to more apps too (another branch, a bookkeeping app…). Each needs a link and its code.", 13, Color.parseColor("#9AA4B2"), false));
+        for (int i = 0; i < ExtraApps.SLOTS; i++) {
+            final int slot = i;
+            final ExtraApps.Slot s = ExtraApps.get(this, i);
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(14), dp(10), dp(14), dp(12));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#11151D"));
+            bg.setCornerRadius(dp(12));
+            bg.setStroke(dp(1), Color.parseColor(s.ready() ? "#2F6F4A" : "#2A3140"));
+            box.setBackground(bg);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            box.setLayoutParams(lp);
+            root.addView(box);
+
+            if (editingSlot == slot) {
+                box.addView(text((s.ready() ? "Edit " : "Set up ") + "app " + (slot + 2), 15, Color.WHITE, true));
+                final EditText name = input("Name, e.g. Branch 2", s.name, InputType.TYPE_CLASS_TEXT);
+                final EditText url = input("Link, e.g. https://example.com/api/momo/sms", s.url.isEmpty() ? "https://" : s.url, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+                final EditText code = input("Code (key / token from that app)", s.code, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                final android.widget.CheckBox momoOnly = new android.widget.CheckBox(this);
+                momoOnly.setText("Only MoMo payment messages (recommended)");
+                momoOnly.setTextColor(Color.parseColor("#BEC3D2"));
+                momoOnly.setChecked(s.momoOnly);
+                final TextView err = text("", 13, Color.parseColor("#F87171"), false);
+                box.addView(name);
+                box.addView(url);
+                box.addView(code);
+                box.addView(momoOnly);
+                box.addView(text("Unticked = every SMS on this phone is sent there, including private ones. Only do that for an app you trust.", 12, Color.parseColor("#6E7382"), false));
+                box.addView(err);
+                Button save = button("Save", true);
+                save.setOnClickListener(v -> {
+                    String link = url.getText().toString().trim();
+                    if (!link.startsWith("http://") && !link.startsWith("https://") || link.length() < 12) {
+                        err.setText("The link must start with https:// (or http:// on the same Wi-Fi)");
+                        return;
+                    }
+                    ExtraApps.save(this, slot, name.getText().toString(), link, code.getText().toString(), momoOnly.isChecked());
+                    editingSlot = -1;
+                    RelayService.start(this);
+                    build();
+                });
+                box.addView(save);
+                Button cancel = button("Cancel", false);
+                cancel.setOnClickListener(v -> {
+                    editingSlot = -1;
+                    build();
+                });
+                box.addView(cancel);
+            } else if (s.ready()) {
+                box.addView(text("✓ " + s.label(), 15, Color.parseColor("#22C55E"), true));
+                box.addView(text(s.url + (s.code.isEmpty() ? " · no code" : " · code set") + (s.momoOnly ? " · MoMo only" : " · all SMS"), 12, Color.parseColor("#9AA4B2"), false));
+                int waiting = ExtraApps.queued(this, slot);
+                if (waiting > 0) box.addView(text(waiting + " message(s) waiting (app unreachable)", 12, Color.parseColor("#F59E0B"), false));
+                final TextView status = text("", 13, Color.parseColor("#BEC3D2"), false);
+                Button test = button("Test", false);
+                test.setOnClickListener(v -> {
+                    status.setText("Sending a test…");
+                    new Thread(() -> {
+                        final String m = ExtraApps.test(this, slot);
+                        ui.post(() -> status.setText(m));
+                    }).start();
+                });
+                box.addView(test);
+                box.addView(status);
+                Button edit = button("Edit", false);
+                edit.setOnClickListener(v -> {
+                    editingSlot = slot;
+                    build();
+                });
+                box.addView(edit);
+                Button remove = button("Remove", false);
+                remove.setOnClickListener(v -> {
+                    ExtraApps.clear(this, slot);
+                    build();
+                });
+                box.addView(remove);
+            } else {
+                box.addView(text("App " + (slot + 2) + " · empty", 15, Color.parseColor("#BEC3D2"), true));
+                box.addView(text("Placeholder: add a link and code to forward MoMo SMS to one more app.", 12, Color.parseColor("#6E7382"), false));
+                Button setup = button("Set up", false);
+                setup.setOnClickListener(v -> {
+                    editingSlot = slot;
+                    build();
+                });
+                box.addView(setup);
+            }
+        }
     }
 
     @Override

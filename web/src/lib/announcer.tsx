@@ -60,11 +60,15 @@ function tone(ac: AudioContext, freq: number, start: number, dur: number, vol: n
   o.stop(start + dur + 0.02);
 }
 
-/** warning: two soft beeps; timeup: an alarm of 3 × 3 fast beeps. Returns how long it plays (ms). */
-export function beep(kind: 'warning' | 'timeup', volume: number) {
+/** warning: two soft beeps; timeup: an alarm of 3 × 3 fast beeps; promo: a rising chime. Returns how long it plays (ms). */
+export function beep(kind: 'warning' | 'timeup' | 'promo', volume: number) {
   const ac = ctx();
   if (!ac) return 0;
   const t = ac.currentTime + 0.05;
+  if (kind === 'promo') {
+    [523, 659, 784, 1047].forEach((f, i) => tone(ac, f, t + i * 0.13, i === 3 ? 0.35 : 0.12, volume));
+    return 800;
+  }
   if (kind === 'warning') {
     tone(ac, 880, t, 0.18, volume);
     tone(ac, 880, t + 0.3, 0.18, volume);
@@ -91,11 +95,18 @@ export function speak(text: string, p: AnnouncerPrefs, times = 1) {
 }
 
 /** Called for every server alert that carries sound/speak hints. */
-export function announce(e: { sound?: 'warning' | 'timeup'; speak?: string }) {
+export function announce(e: { sound?: 'warning' | 'timeup' | 'promo'; speak?: string }) {
   const p = loadPrefs();
   if (!p.sound || !e.sound) return;
   const ms = beep(e.sound, p.volume);
   if (p.voice && e.speak) setTimeout(() => speak(e.speak!, p, e.sound === 'timeup' ? p.repeat : 1), ms);
+}
+
+/** "Test" buttons: plays the promo chime and says the text on this PC, even when the speaker is off here. */
+export function previewAnnouncement(text: string) {
+  const p = loadPrefs();
+  const ms = beep('promo', p.volume);
+  setTimeout(() => speak(text, p), ms);
 }
 
 /** Top-bar speaker button: on/off + settings for this PC. */

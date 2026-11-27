@@ -25,6 +25,7 @@ export interface Settings extends CurrencyCfg {
   mobileMoneyProviders: string[];
   requireMomoReference: boolean;
   warningMinutes: number[];
+  announceNames?: boolean;
   requireOpenShift: boolean;
   defaultCreditLimit?: number;
   portalSelfStart?: boolean;
@@ -147,6 +148,7 @@ const DEFAULT_SETTINGS: Settings = {
   mobileMoneyProviders: ['MTN MoMo', 'Telecel Cash', 'AT Money'],
   requireMomoReference: false,
   warningMinutes: [5, 1],
+  announceNames: true,
   requireOpenShift: false,
   receiptHeader: '',
   receiptFooter: '',

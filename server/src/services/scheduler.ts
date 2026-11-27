@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { activeSecondsAt } from '../billing/engine.js';
 import type { Ctx } from '../context.js';
 import { sessionEvents, sessions, stations } from '../db/schema.js';
-import { expireSession, recoverAfterOutage } from './sessions.js';
+import { expireSession, playerCall, recoverAfterOutage } from './sessions.js';
 import { getKv, getSettings, setKv } from './settings.js';
 import { notifyLater } from './push.js';
 
@@ -92,7 +92,7 @@ export class SessionScheduler {
               sessionId: s.id,
               stationId: s.stationId,
               sound: 'warning',
-              speak: `${st?.name ?? 'Station'}, ${w} minute${w === 1 ? '' : 's'} remaining`,
+              speak: `${await playerCall(this.ctx, s.customerId)}${st?.name ?? 'Station'}, ${w} minute${w === 1 ? '' : 's'} remaining`,
             });
             if (w >= 5) notifyLater(this.ctx, s.customerId, { title: `⏳ ${w} minutes left`, body: `Your time on ${st?.name ?? 'your station'} ends soon. Add time at the counter or in the app.`, url: '/portal', tag: `session-${s.id}` });
             break;

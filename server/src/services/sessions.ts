@@ -24,6 +24,7 @@ import { refundSessionMoney } from './refunds.js';
 import { planCategory, playableSeconds, postTime } from './time-bank.js';
 import { moneyText } from './sms.js';
 import { notifyLater } from './push.js';
+import { checkPackages, spokenName } from './promo-packages.js';
 
 export type SessionRow = typeof sessions.$inferSelect;
 
@@ -290,6 +291,7 @@ export async function startSession(ctx: Ctx, actor: Actor, raw: unknown) {
   ctx.bus.emit({ type: 'sessions.changed', sessionId: result.id, stationId: result.stationId });
   if (input.billingType === 'prepaid') ctx.bus.emit({ type: 'payments.changed' });
   if (input.bookingId) ctx.bus.emit({ type: 'bookings.changed', bookingId: input.bookingId, stationId: result.stationId });
+  await checkPackages(ctx, result.customerId, actor);
   return describeSession(result, now);
 }
 
@@ -400,6 +402,7 @@ export async function extendSession(ctx: Ctx, actor: Actor, id: string, raw: unk
   ctx.bus.emit({ type: 'sessions.changed', sessionId: s.id, stationId: s.stationId });
   ctx.bus.emit({ type: 'payments.changed' });
   if (account) ctx.bus.emit({ type: 'customers.changed', customerId: account });
+  await checkPackages(ctx, account ?? s.customerId, actor);
   return describeSession(s, now);
 }
 
@@ -474,6 +477,7 @@ export async function reduceSession(ctx: Ctx, actor: Actor, id: string, raw: unk
   ctx.bus.emit({ type: 'sessions.changed', sessionId: s.id, stationId: s.stationId });
   ctx.bus.emit({ type: 'payments.changed' });
   if (s.customerId) ctx.bus.emit({ type: 'customers.changed', customerId: s.customerId });
+  await checkPackages(ctx, s.customerId, actor);
   return describeSession(s, now);
 }
 
@@ -626,6 +630,7 @@ export async function endSession(ctx: Ctx, actor: Actor, id: string, raw: unknow
   ctx.bus.emit({ type: 'sessions.changed', sessionId: s.id, stationId: s.stationId });
   ctx.bus.emit({ type: 'payments.changed' });
   if (s.customerId) ctx.bus.emit({ type: 'customers.changed', customerId: s.customerId });
+  await checkPackages(ctx, s.customerId, actor);
   return describeSession(s, now);
 }
 
@@ -654,6 +659,7 @@ export async function settleSession(ctx: Ctx, actor: Actor, id: string, raw: unk
   ctx.bus.emit({ type: 'sessions.changed', sessionId: s.id, stationId: s.stationId });
   ctx.bus.emit({ type: 'payments.changed' });
   if (s.customerId) ctx.bus.emit({ type: 'customers.changed', customerId: s.customerId });
+  await checkPackages(ctx, s.customerId, actor);
   return describeSession(s, now);
 }
 
@@ -669,10 +675,19 @@ export async function expireSession(ctx: Ctx, id: string) {
     ctx.bus.emit({ type: 'sessions.changed', sessionId: s.id, stationId: s.stationId });
     const [st] = await ctx.db.select({ name: stations.name }).from(stations).where(eq(stations.id, s.stationId));
     const name = st?.name ?? 'Station';
-    ctx.bus.emit({ type: 'alert', level: 'warning', message: `${name}: time is up`, sessionId: s.id, stationId: s.stationId, sound: 'timeup', speak: `${name}, time up` });
+    const who = await playerCall(ctx, s.customerId);
+    ctx.bus.emit({ type: 'alert', level: 'warning', message: `${name}: time is up`, sessionId: s.id, stationId: s.stationId, sound: 'timeup', speak: `${who}${name}, time up` });
     notifyLater(ctx, s.customerId, { title: '⏰ Time is up', body: `Your time on ${name} has finished. Thanks for playing!`, url: '/portal', tag: `session-${s.id}` });
+    await checkPackages(ctx, s.customerId);
   }
   return s;
+}
+
+/** "Kofi, " before a speaker announcement (Settings → Counter speaker calls the player's first name). */
+export async function playerCall(ctx: Ctx, customerId: string | null | undefined) {
+  if (!customerId || (await getSettings(ctx.db)).announceNames === false) return '';
+  const [c] = await ctx.db.select({ fullName: customers.fullName, gamertag: customers.gamertag }).from(customers).where(eq(customers.id, customerId));
+  return c ? `${spokenName(c)}, ` : '';
 }
 
 /**
@@ -787,6 +802,7 @@ export async function payTab(ctx: Ctx, actor: Actor, customerId: string, raw: un
   const out = await ctx.db.transaction((tx) => payTabTx(tx, actor, customerId, input, now));
   ctx.bus.emit({ type: 'customers.changed', customerId });
   ctx.bus.emit({ type: 'payments.changed' });
+  await checkPackages(ctx, customerId, actor);
   return out;
 }
 

@@ -1,5 +1,14 @@
 # Development Log
 
+## 2026-11-27 — v1.4.0 Play packages with speaker announcement; ZENAA MoMo 1.3 "Other apps"
+- Migration 0014: `promo_packages` (goal spend|time, target, period day|week|month|once, bonus money and/or minutes, dates, announce + message, showInPortal) and `promo_package_awards` (unique package+customer+period key).
+- `services/promo-packages.ts`: `checkPackages` runs after session start/extend/end/settle/reduce/expire, pay tab, and saved-time purchase. Spend = payments of kind session/extension. Time = `accumulatedSeconds` of ended sessions. Both count only since the latest of period start, package start and package creation. Pays wallet `bonus` and/or time `adjust`, then audits, announces (alert `sound: 'promo'`, `speak` from the template with `{name}`/`{package}`) and pushes a notification.
+- Routes `/api/promo-packages` (pricing.manage). Portal rewards include `packages` with progress. Staff Promotions page has a new "Play packages" card with a Test-on-speaker button. Customer Rewards page has "Play more, get more" progress bars.
+- Setting `announceNames` (default on): time warnings and time-up now say the player's first name (`playerCall`).
+- Announcer: new `promo` chime and `previewAnnouncement`.
+- ZENAA MoMo app 1.3.0 (versionCode 4): `ExtraApps.java` adds up to `SLOTS` (3) extra links with code, an "only MoMo senders" filter, a separate queue per app, and Test/Edit/Remove. `PRESET` is a placeholder for links baked into the APK. The service also runs when only other apps are set up.
+- 167 tests (new `packages-v140.test.ts`, 6).
+
 ## 2026-11-26 — v1.3.0 Public home page (landing page)
 - New public home page at `/` for visitors (and Google): hero with Create account / Sign in (customer app), game cards in a scrolling row (click = customer app, booking if on), How it works, News (own posts + game news), About us, Find us (Google map from the address, hours, phone, WhatsApp, Directions), app install band, footer with socials. The staff sign-in is a quiet "Staff" link in the footer and at `/login`.
 - `/` still opens the staff sign-in on devices where staff have signed in before, and inside the installed staff app (its start page is now `/login`). `/home` always shows the home page. Installing from the home page gives the customer app (opens on `/portal`).

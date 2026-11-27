@@ -6,6 +6,7 @@ import type { Ctx } from '../context.js';
 import { happyHours, promoCodes, stations } from '../db/schema.js';
 import { notFound, parse } from '../lib/errors.js';
 import { audit } from '../services/audit.js';
+import { createPackage, deletePackage, listPackages, updatePackage } from '../services/promo-packages.js';
 import { checkPromoShape, findHappyHour, HappyHourBody, previewPromo, PromoBody } from '../services/promotions.js';
 
 export async function promotionRoutes(app: FastifyInstance, ctx: Ctx) {
@@ -65,4 +66,10 @@ export async function promotionRoutes(app: FastifyInstance, ctx: Ctx) {
     await audit(ctx.db, actorOf(req), 'promo_code.update', { type: 'promo_code', id: p.id }, { ...body });
     return p;
   });
+
+  // ───── Play packages (spend / play this much → bonus) ─────
+  app.get('/api/promo-packages', manage, async () => listPackages(ctx));
+  app.post('/api/promo-packages', manage, async (req) => createPackage(ctx, actorOf(req), req.body));
+  app.patch<{ Params: { id: string } }>('/api/promo-packages/:id', manage, async (req) => updatePackage(ctx, actorOf(req), req.params.id, req.body));
+  app.delete<{ Params: { id: string } }>('/api/promo-packages/:id', manage, async (req) => deletePackage(ctx, actorOf(req), req.params.id));
 }

@@ -335,6 +335,53 @@ export const promoCodes = pgTable('promo_codes', {
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
+/**
+ * Play packages: "spend GHS 100 this week → get GHS 10 bonus", "play 5 hours this month → 1 free hour".
+ * Checked whenever a customer pays for or finishes playing; the bonus is paid once per customer per period.
+ */
+export const promoPackages = pgTable('promo_packages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description'),
+  /** spend = money paid for play (sessions, extra time, saved time); time = minutes played. */
+  goal: text('goal').$type<'spend' | 'time'>().notNull(),
+  /** Minor units for "spend", minutes for "time". */
+  target: integer('target').notNull(),
+  /** day | week | month = once per customer each day/week/month; once = once per customer while it runs. */
+  period: text('period').$type<'day' | 'week' | 'month' | 'once'>().notNull(),
+  bonusAmount: money('bonus_amount').notNull().default(0),
+  bonusMinutes: integer('bonus_minutes').notNull().default(0),
+  validFrom: ts('valid_from'),
+  validTo: ts('valid_to'),
+  /** Say it on the counter PC speaker, calling the customer's name. */
+  announce: boolean('announce').notNull().default(true),
+  /** What the speaker says. {name} = customer's first name, {package} = package name. */
+  message: text('message'),
+  showInPortal: boolean('show_in_portal').notNull().default(true),
+  active: boolean('active').notNull().default(true),
+  deletedAt: ts('deleted_at'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+});
+
+export const promoPackageAwards = pgTable(
+  'promo_package_awards',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    packageId: uuid('package_id')
+      .notNull()
+      .references(() => promoPackages.id),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    /** e.g. "2026-11-27", "2026-W48", "2026-11", "once". */
+    periodKey: text('period_key').notNull(),
+    bonusAmount: money('bonus_amount').notNull().default(0),
+    bonusMinutes: integer('bonus_minutes').notNull().default(0),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('promo_package_awards_once').on(t.packageId, t.customerId, t.periodKey), index('promo_package_awards_customer_idx').on(t.customerId)],
+);
+
 // ───────────────────────── Sessions ─────────────────────────
 
 export const sessionStatus = pgEnum('session_status', ['running', 'paused', 'ended']);

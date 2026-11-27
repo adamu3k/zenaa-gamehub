@@ -15,6 +15,7 @@ import { AppError, badRequest, conflict, notFound, pgErrorCode } from '../lib/er
 import { audit } from './audit.js';
 import { getSettings } from './settings.js';
 import { postWallet } from './wallet.js';
+import { customerPackages } from './promo-packages.js';
 
 export const PLATFORMS = ['youtube', 'tiktok', 'instagram', 'facebook', 'x', 'snapchat', 'whatsapp', 'website'] as const;
 
@@ -213,6 +214,7 @@ export async function customerRewards(ctx: Ctx, me: string) {
     redeemed,
     hasCodes: offers.some((o) => o.kind === 'code' && isLive(o, now)),
     promoCodes: promos.filter((p) => p.maxUses == null || p.usesCount < p.maxUses).map(({ maxUses: _m, usesCount: _u, ...p }) => p),
+    packages: await customerPackages(ctx, me),
   };
 }
 

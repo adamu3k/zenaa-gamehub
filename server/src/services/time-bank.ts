@@ -7,6 +7,7 @@ import { customers, customerTimeLog, membershipTiers, pricingPlans, stationCateg
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { collectTenders, resolveTenders, TenderInputSchema } from './wallet.js';
+import { checkPackages } from './promo-packages.js';
 
 export type TimeKind = 'bought' | 'saved' | 'used' | 'adjust' | 'convert';
 
@@ -265,6 +266,9 @@ export async function addCustomerTime(ctx: Ctx, actor: Actor, customerId: string
     return r;
   });
   ctx.bus.emit({ type: 'customers.changed', customerId });
-  if (input.mode === 'buy') ctx.bus.emit({ type: 'payments.changed' });
+  if (input.mode === 'buy') {
+    ctx.bus.emit({ type: 'payments.changed' });
+    await checkPackages(ctx, customerId, actor);
+  }
   return row;
 }

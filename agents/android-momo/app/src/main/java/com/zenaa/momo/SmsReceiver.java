@@ -32,11 +32,15 @@ public class SmsReceiver extends BroadcastReceiver {
             at = m.getTimestampMillis();
         }
         final Context app = context.getApplicationContext();
-        for (Map.Entry<String, StringBuilder> e : bySender.entrySet()) Relay.enqueue(app, e.getKey(), e.getValue().toString(), at);
+        for (Map.Entry<String, StringBuilder> e : bySender.entrySet()) {
+            Relay.enqueue(app, e.getKey(), e.getValue().toString(), at);
+            ExtraApps.enqueue(app, e.getKey(), e.getValue().toString(), at);
+        }
         final PendingResult pending = goAsync();
         new Thread(() -> {
             try {
                 Relay.flush(app);
+                ExtraApps.flush(app);
                 Outbox.run(app);
             } finally {
                 pending.finish();

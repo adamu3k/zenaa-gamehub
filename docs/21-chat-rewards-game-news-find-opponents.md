@@ -95,6 +95,26 @@ If a customer types a promo code into the bonus code box, the app tells them to 
 
 **Deleting a reward** that has already paid someone switches it **off** instead, so the history stays. Customers who claimed it still see it as done.
 
+### Play packages: spend or play this much, get a bonus (v1.4)
+
+Set them up in **Promotions → Play packages → Add package**. Some examples:
+- *Spend GHS 100 this week → GHS 10 bonus*
+- *Play 5 hours this month → 1 hour free*
+- *Play 3 hours on Saturday → 30 minutes free*: choose **One day**, with the Saturday as the start and end date.
+
+| Field | Meaning |
+|---|---|
+| The customer must | **Spend an amount**: money paid for play, which covers sessions, extra time and saved time. **Play for some time**: finished sessions. |
+| Within | **One day / week (Mon–Sun) / month**: the count starts again each period, and the bonus can be won once per period. **From start to end date**: won once. |
+| Bonus money / Free minutes | Money goes into the customer's wallet; minutes go into their saved time. You can give either one, or both. |
+| Starts / Ends | When the package runs. Only play after the start counts. |
+| Announce on the counter speaker | The counter PC speaker plays a chime and calls the customer: *"Kofi, your promo bonus has been added. Thank you!"* You can change the words: `{name}` is the first name, `{package}` is the package name. Press **Test** to hear it. |
+| Show it in the customer app | The customer sees the package with a progress bar under **Rewards → Play more, get more**. |
+
+The bonus is paid automatically as soon as the customer reaches the target: when they pay for a session, extra time or saved time, or when a session ends. The customer also gets a phone notification. The **Paid** column shows how many times the package has paid out.
+
+For the speaker, turn it on at the counter PC with the speaker button in the top bar. The same speaker says the time warnings, and they now call the player's name too: *"Kofi, PS5 One, 5 minutes remaining"*. To stop names being said, untick **Settings → Operations → Counter speaker calls the player's first name**.
+
 ## 4. Game news from other sites
 
 ZENAA can show the newest stories from game news websites next to your own posts. Each story shows the picture, the site's name and **Read on IGN**, which opens the full story on that site.

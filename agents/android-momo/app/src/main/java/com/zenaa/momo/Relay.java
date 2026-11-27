@@ -22,7 +22,7 @@ import java.util.Locale;
  * with the next SMS, when the app is opened, or with "Send waiting messages".
  */
 final class Relay {
-    static final String VERSION = "1.2.0";
+    static final String VERSION = "1.3.0";
 
     static final class Result {
         final int status;
@@ -39,12 +39,18 @@ final class Relay {
     }
 
     static Result call(String method, String url, String token, JSONObject body) throws Exception {
+        return call(method, url, token, body, null);
+    }
+
+    /** relayCode: also sent as "X-Relay-Code" (for other apps that read a header instead of Bearer). */
+    static Result call(String method, String url, String token, JSONObject body, String relayCode) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
         con.setRequestMethod(method);
         con.setConnectTimeout(8000);
         con.setReadTimeout(10000);
         con.setRequestProperty("User-Agent", "ZenaaMoMo/" + VERSION);
         if (token != null && token.length() > 0) con.setRequestProperty("Authorization", "Bearer " + token);
+        if (relayCode != null && relayCode.length() > 0) con.setRequestProperty("X-Relay-Code", relayCode);
         if (body != null) {
             byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
             con.setDoOutput(true);

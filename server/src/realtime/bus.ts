@@ -20,7 +20,7 @@ export type BusEvent =
       stationId?: string;
       sessionId?: string;
       /** Counter PC: play this sound and read `speak` aloud (when turned on there). */
-      sound?: 'warning' | 'timeup';
+      sound?: 'warning' | 'timeup' | 'promo';
       speak?: string;
     };
 

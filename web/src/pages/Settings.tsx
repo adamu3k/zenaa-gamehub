@@ -95,6 +95,7 @@ export function SettingsPage() {
           .split(',')
           .map((x) => Number(x.trim()))
           .filter((x) => Number.isInteger(x) && x > 0),
+        announceNames: f.announceNames !== false,
         requireOpenShift: f.requireOpenShift,
         defaultCreditLimit: f.creditText.trim() ? (parseMoney(f.creditText, settings.currencyMinorUnits) ?? 0) : 0,
         portalSelfStart: f.portalSelfStart !== false,
@@ -362,6 +363,10 @@ export function SettingsPage() {
           <Field label="Low-time alerts (minutes before end)" full hint="Comma separated, e.g. 5, 1">
             <input className="input" value={f.warning} onChange={(e) => setF({ ...f, warning: e.target.value })} />
           </Field>
+          <label className="check" style={{ gridColumn: '1 / -1' }}>
+            <input type="checkbox" checked={f.announceNames !== false} onChange={(e) => setF({ ...f, announceNames: e.target.checked })} /> Counter speaker calls the
+            player's first name (e.g. "Kofi, PS5 One, 5 minutes remaining" and "Kofi, your promo bonus has been added")
+          </label>
           <Field label="Receipt header" full hint="Printed under the centre name — address, phone, etc.">
             <textarea className="textarea" value={f.receiptHeader} maxLength={300} onChange={(e) => setF({ ...f, receiptHeader: e.target.value })} />
           </Field>
